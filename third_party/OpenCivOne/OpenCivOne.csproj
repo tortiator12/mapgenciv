@@ -1,0 +1,91 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+	<OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <EnableDefaultItems>false</EnableDefaultItems>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <EnableDefaultEmbeddedResourceItems>false</EnableDefaultEmbeddedResourceItems>
+    <Title>OpenCivOne project - Free and Open Source (FOSS) preservation effort and rewrite of the iconic Civilization Game designed by Sid Meier and Bruce Shelley in year 1991</Title>
+    <Version>1.475.6.7</Version>
+    <Copyright>Copyright (c) 2023-2026 by Rajko Horvat</Copyright>
+    <PackageProjectUrl>https://codeberg.org/rhorvat/OpenCivOne</PackageProjectUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <RepositoryUrl>https://codeberg.org/rhorvat/OpenCivOne</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>4x;4x-strategy-game;civilization;civilization-games;game;remake;remake-game;remake-games;retro;retro-game;retro-games;retrogaming</PackageTags>
+    <NeutralLanguage>en</NeutralLanguage>
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
+    <ProduceReferenceAssembly>False</ProduceReferenceAssembly>
+    <WarningsAsErrors>nullable</WarningsAsErrors>
+    <!-- Keep upstream diagnostics independent from Project1991's stricter
+         analyzer policy. Source behavior is changed only through documented
+         integration patches. -->
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <EnableNETAnalyzers>false</EnableNETAnalyzers>
+    <RunAnalyzersDuringBuild>false</RunAnalyzersDuringBuild>
+    <Authors>Rajko Horvat</Authors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Program.cs;App.axaml.cs;UI\**\*.cs" />
+    <EmbeddedResource Include="UI\MessageBox\MessageBoxResources.resx" />
+    <AvaloniaXaml Include="App.axaml;UI\**\*.axaml" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="12.1.0" />
+    <PackageReference Include="Avalonia.Desktop" Version="12.1.0" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.0" />
+	<PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="OpenCivOne.Runtime.csproj" />
+    <ProjectReference Include="..\..\..\src\Project1991.Classic.Avalonia\Project1991.Classic.Avalonia.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Update="UI\MessageBox\MessageBoxResources.resx">
+      <Generator>ResXFileCodeGenerator</Generator>
+      <LastGenOutput>MessageBoxResources.Designer.cs</LastGenOutput>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Remove="..\LICENSE" />
+    <None Remove="..\README.md" />
+	<None Remove="..\CONTRIBUTING\code_of_conduct.md" />
+	<None Remove="..\CONTRIBUTING\CONTRIBUTING.md" />
+	<None Remove="..\CONTRIBUTING\roadmap.md" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="..\LICENSE">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\README.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\CONTRIBUTING\code_of_conduct.md">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\CONTRIBUTING\CONTRIBUTING.md">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\CONTRIBUTING\roadmap.md">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <EditorConfigFiles Remove=".editorconfig" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include=".editorconfig" />
+  </ItemGroup>
+	
+</Project>

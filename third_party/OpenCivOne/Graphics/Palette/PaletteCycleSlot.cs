@@ -1,0 +1,21 @@
+﻿using Avalonia.Media;
+
+namespace OpenCivOne.Graphics
+{
+	public class PaletteCycleSlot
+	{
+		public bool Active = false;
+		public int Speed;
+		public int SpeedCount;
+		public byte StartPosition;
+		public int CurrentPosition = 0;
+		public Color[] Palette;
+
+		public PaletteCycleSlot(int speed, byte startPosition, Color[] colors)
+		{
+			this.Speed = speed;
+			this.StartPosition = startPosition;
+			this.Palette = colors;
+		}
+	}
+}
