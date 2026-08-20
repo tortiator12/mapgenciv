@@ -1,7 +1,7 @@
 # mapgenciv
 
 Standalone extraction of the Civilization I map-generation pipeline used by
-[History Untold](https://github.com/) (a Godot/C# Civ1 remake). Generates a
+History Untold (a Godot/C# Civ1 remake). Generates a
 complete, authentic 80x50 Civ1 world (terrain, rivers, hi-res art chunks)
 from a seed, ready for a 2D game engine to load.
 
