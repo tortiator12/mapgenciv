@@ -111,12 +111,19 @@ def main():
     ap.add_argument('--no-lines', action='store_true')
     ap.add_argument('--skip-existing', action='store_true')
     ap.add_argument('--threads', type=int, default=0)
+    ap.add_argument('--film', default=None, help='edit module film_<name>.py (e.g. lighthouse20)')
     args = ap.parse_args()
+    FM = None
+    if args.film:
+        import importlib
+        FM = importlib.import_module(f'film_{args.film}')
+        if args.frames == f'0-{TL.NFRAMES - 1}':
+            args.frames = f'0-{FM.NFRAMES - 1}'
     res = tuple(int(v) for v in args.res.split('x'))
     os.makedirs(args.out, exist_ok=True)
 
     t0 = time.time()
-    S = SC.build(res)
+    S = FM.build(res) if FM else SC.build(res)
     sc = bpy.context.scene
     if args.threads:
         sc.render.threads_mode = 'FIXED'
@@ -135,8 +142,12 @@ def main():
         if args.skip_existing and os.path.exists(meta_p):
             continue
         tf = time.time()
-        t = f / TL.FPS
-        meta = SC.pose(S, t)
+        if FM:
+            meta = FM.pose(S, f)
+            t = meta['t']
+        else:
+            t = f / TL.FPS
+            meta = SC.pose(S, t)
         sc.frame_current = f
         sc.cycles.seed = 17   # fixed: static residual noise reads calmer than boiling noise
 

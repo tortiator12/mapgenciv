@@ -59,6 +59,43 @@ pixel plus OIDN, about 10 s per frame with two render processes, so roughly 2 h
 for all 720 frames. Stylizing takes about 3 min with 4 processes, and the
 encode about 1 min (`-crf 22 -tune film`).
 
+## Civ1 game film: *Der Leuchtturm* (20 s)
+
+The same scene, re-cut as a 20-second wonder film for the Civ1 remake
+(`wunderfilm_04_lighthouse`, storyboard in
+[`storyboards/runde1_fehlende_wunder.md`](storyboards/runde1_fehlende_wunder.md)).
+It uses the bright, painterly look of the other game films and has no text in
+the picture, because the game shows the title and year itself.
+
+| shot | time | what you see | clock |
+|---|---|---|---|
+| S1 | 0–3 s | the quay on Pharos, morning: a crane swings a block off a barge, a team drags a sledge, ox carts leave for the site, gulls | real time |
+| S2 | 3–11 s | slow orbit: podium → square tier → octagon → lantern; scaffolds climb and are struck, derricks lift; one short night by torchlight | time-lapse |
+| S3 | 11–13.5 s | golden hour at the lantern: a guyed derrick lifts the bronze Zeus Soter, slews it over the dome and lowers it; men steady it on tag lines | slow time-lapse |
+| S4 | 13.5–16 s | sunset, scaffolding gone: the beacon is lit | time-lapse |
+| S5 | 16–20 s | blue hour: a merchantman with a swan-neck stern and a stern lantern brails up its sail on the way into the Great Harbour; Alexandria's lights on the horizon | real time |
+
+| file | role |
+|---|---|
+| `film_lighthouse20.py` | The edit: per-shot clocks (construction time, hour, animation), cameras, and the extras only this film needs: walk-cycle people with tunics, yoked ox carts with turning wheels, gulls, a sledge team, the hero ship with a brailed sail. |
+| `scene.py` | Shared with the 30-s film. `build(look='bright', derrick=True)` selects the sunny palettes, cumulus sky, ashlar quay and the detailed statue. `pose(S, t, **clocks)` takes separate clocks, and with no keywords it gives exactly the 30-s film. |
+| `stylize.py --look paint` | Aerial haze, filmic tone curve, soft Kuwahara paint with the detail sharpened back in, bloom and beacon glow, warm grade. Auto-exposure is smoothed within each shot and never across a cut. |
+| `audio_lighthouse20.py` | Lyre alone at the quay; frame drum, plucked ostinato and chisels for the time-lapse; crickets in the night; an aulos over the statue; A7(b9) → D major with boom, gong and choir exactly when the fire catches (14.0 s); waves, creaking timber and a sailor's call at the end. Mean level −24 dB, like the other game films. |
+| `make_lighthouse20.sh` | Render → stylize → soundtrack → MP4 (H.264) and OGV (Theora/Vorbis, for Godot). |
+
+Physics notes: the statue always hangs plumb under the boom tip, and the tip
+is high enough (boom heel 6 m up the mast, so the boom clears the lantern
+scaffold). The derrick's guys are anchored on the octagon roof and on the
+first terrace, and the derrick never lowers a load into the lantern. The
+beacon is an open fire. There is no rotating beam.
+
+```bash
+PYTHON=venv/bin/python wonder_film/make_lighthouse20.sh               # all 480 frames (~1.5 h on 4 cores)
+venv/bin/python wonder_film/render.py --film lighthouse20 --out /tmp/l20 --frames 30,200,300,420 \
+    --res 640x360 --no-lines                                              # quick look
+venv/bin/python wonder_film/stylize.py --inp /tmp/l20 --out /tmp/l20png --look paint --no-titles
+```
+
 ## Historical basis
 
 - Built c. 280–247 BC under the first Ptolemies. The architect was

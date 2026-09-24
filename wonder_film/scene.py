@@ -59,6 +59,40 @@ M_WOOD, M_PLANK, M_ROPE = 0, 1, 2
 PASS = dict(water=1, terrain=2, masonry=3, timber=4, crane=5, worker=6, ship=7,
             city=8, props=9, statue=10, fire=11, torch=12, sky=0)
 
+# ----------------------------------------------------------------- looks
+# 'dark': the moody graphic-novel film.  'bright': the sunny, painterly look of
+# the Civ1 wonder films.  build(look=...) selects one before anything is made.
+PALETTES = {
+    'dark': dict(
+        stone=((0.74, 0.66, 0.53), (0.30, 0.26, 0.21)), podium=((0.58, 0.53, 0.45), (0.22, 0.20, 0.17)),
+        paving=((0.55, 0.49, 0.40), (0.20, 0.17, 0.14)), grime=0.22,
+        wood=(0.42, 0.30, 0.18), plank=(0.52, 0.40, 0.26), rope=(0.12, 0.09, 0.06),
+        cloth=(0.55, 0.49, 0.40), cloth2=(0.38, 0.22, 0.14), hull=(0.16, 0.10, 0.06), sail=(0.62, 0.55, 0.44),
+        rock=((0.075, 0.068, 0.062), (0.21, 0.19, 0.165)), sand=((0.17, 0.15, 0.12), (0.27, 0.235, 0.185)),
+        dust=((0.17, 0.155, 0.135), (0.26, 0.24, 0.21)), scrub_ground=(0.14, 0.15, 0.07), wet=(0.035, 0.035, 0.035),
+        boulder=((0.06, 0.055, 0.05), (0.2, 0.18, 0.155)), boulder_wet=(0.025, 0.025, 0.028),
+        water=((0.006, 0.020, 0.028), (0.02, 0.07, 0.07)), foam=(0.55, 0.58, 0.58),
+        city=((0.42, 0.38, 0.31), (0.62, 0.58, 0.5)),
+        scrub=(0.11, 0.13, 0.065), trunk=(0.2, 0.15, 0.1), frond=(0.07, 0.1, 0.04),
+        workers=[(0.62, 0.58, 0.5), (0.55, 0.45, 0.32), (0.45, 0.2, 0.12), (0.7, 0.66, 0.58),
+                 (0.35, 0.3, 0.25), (0.5, 0.36, 0.2)]),
+    'bright': dict(
+        stone=((0.74, 0.64, 0.48), (0.46, 0.40, 0.30)), podium=((0.64, 0.56, 0.43), (0.38, 0.33, 0.25)),
+        paving=((0.60, 0.52, 0.40), (0.36, 0.31, 0.24)), grime=0.14,
+        wood=(0.50, 0.36, 0.22), plank=(0.60, 0.47, 0.31), rope=(0.34, 0.27, 0.17),
+        cloth=(0.80, 0.74, 0.62), cloth2=(0.62, 0.30, 0.16), hull=(0.26, 0.17, 0.10), sail=(0.86, 0.79, 0.65),
+        rock=((0.20, 0.16, 0.12), (0.40, 0.33, 0.24)), sand=((0.42, 0.30, 0.17), (0.58, 0.43, 0.26)),
+        dust=((0.44, 0.35, 0.23), (0.56, 0.45, 0.30)), scrub_ground=(0.30, 0.29, 0.13), scrub_k=0.45, cumulus=True,
+        wet=(0.10, 0.09, 0.08),
+        boulder=((0.18, 0.15, 0.12), (0.42, 0.36, 0.28)), boulder_wet=(0.08, 0.07, 0.06),
+        water=((0.004, 0.040, 0.070), (0.025, 0.19, 0.18)), foam=(0.80, 0.83, 0.82),
+        city=((0.58, 0.50, 0.38), (0.80, 0.72, 0.58)),
+        scrub=(0.20, 0.25, 0.10), trunk=(0.36, 0.27, 0.18), frond=(0.13, 0.22, 0.06),
+        workers=[(0.80, 0.76, 0.66), (0.62, 0.26, 0.14), (0.28, 0.35, 0.50), (0.72, 0.56, 0.30),
+                 (0.42, 0.29, 0.18), (0.84, 0.80, 0.70), (0.50, 0.18, 0.12), (0.58, 0.52, 0.36)]),
+}
+P = PALETTES['dark']
+
 
 # ============================================================ bpy helpers
 def link(obj, coll=None):
@@ -257,7 +291,8 @@ def joint_mask(nb, width=0.05):
     return nb.math('SUBTRACT', 1.0, nb.smooth(0.0, width, d))
 
 
-def mat_masonry(name, base, joint_col, var=0.09, width=0.05, grime=0.22):
+def mat_masonry(name, base, joint_col, var=0.09, width=0.05, grime=None):
+    grime = P['grime'] if grime is None else grime
     m, nb, out = new_material(name)
     tone = nb.attr('tone').outputs['Fac']
     j = joint_mask(nb, width)
@@ -323,6 +358,10 @@ def mat_objcolor(name, rough=0.8):
 
 
 # ============================================================ world / sky
+def PAL_CUMULUS():
+    return bool(P.get('cumulus'))
+
+
 def build_world():
     w = bpy.data.worlds.new('Sky')
     w.use_nodes = True
@@ -348,6 +387,7 @@ def build_world():
     moon_k = nb.value(0.0, 'moon')
     sun_k = nb.value(1.0, 'sun_disc')
     cover = nb.value(0.5, 'cover')
+    gain = nb.value(3.2, 'cloud_gain')
 
     up = nb.math('MAXIMUM', dz, 0.0)
     grad = nb.math('POWER', up, 0.3)
@@ -365,23 +405,42 @@ def build_world():
     inv = nb.math('DIVIDE', 1.0, nb.math('ADD', up, 0.06))
     px = nb.math('MULTIPLY', dx, inv)
     py = nb.math('MULTIPLY', dy, inv)
-    P = nb.comb(nb.math('ADD', px, nb.math('MULTIPLY', t_cloud, 0.55)),
+    Pc = nb.comb(nb.math('ADD', px, nb.math('MULTIPLY', t_cloud, 0.55)),
                 nb.math('ADD', py, nb.math('MULTIPLY', t_cloud, 0.18)), 0.0)
     sdx, sdy, _ = nb.sep(sun.outputs[0])
-    P2 = nb.vmath('ADD', P, nb.comb(nb.math('MULTIPLY', sdx, 0.10), nb.math('MULTIPLY', sdy, 0.10), 0.0))
+    so = 0.35 if PAL_CUMULUS() else 0.10
+    P2 = nb.vmath('ADD', Pc, nb.comb(nb.math('MULTIPLY', sdx, so), nb.math('MULTIPLY', sdy, so), 0.0))
     tz = nb.math('MULTIPLY', t_cloud, 0.12)
-    P = nb.vmath('ADD', P, nb.comb(0.0, 0.0, tz))
+    Pc = nb.vmath('ADD', Pc, nb.comb(0.0, 0.0, tz))
     P2 = nb.vmath('ADD', P2, nb.comb(0.0, 0.0, tz))
-    nz1 = nb.noise(P, 0.28, 5.0, 0.55).outputs['Fac']
-    nz2 = nb.noise(P2, 0.28, 5.0, 0.55).outputs['Fac']
-    big = nb.noise(P, 0.07, 1.0, 0.5).outputs['Fac']
-    cover = nb.math('ADD', cover, nb.math('MULTIPLY', nb.math('SUBTRACT', big, 0.5), 1.1))
-    # coverage threshold
-    lo = nb.math('SUBTRACT', 1.0, cover)
-    dens = nb.math('MULTIPLY', nb.math('SUBTRACT', nz1, nb.math('MULTIPLY', lo, 0.55)), 3.2, clamp=True)
+    if PAL_CUMULUS():
+        # fair-weather cumulus: domain-warped Voronoi puffs with billowy edges
+        def puffs(Q):
+            wv = nb.noise(Q, 0.55, 4.0, 0.6).outputs['Color']
+            Qw = nb.vmath('ADD', Q, nb.vmath('SCALE', nb.vmath('SUBTRACT', wv, (0.5, 0.5, 0.5)), scale=1.3))
+            vo = nb.new('ShaderNodeTexVoronoi', voronoi_dimensions='3D', feature='F1')
+            nb.feed(vo.inputs['Vector'], Qw)
+            vo.inputs['Scale'].default_value = 0.36
+            vo.inputs['Randomness'].default_value = 0.9
+            present = nb.smooth(nb_cover_lo, nb_cover_lo + 0.05, nb.sep(vo.outputs['Color'])[0])
+            puff = nb.math('MULTIPLY', nb.smooth(0.62, 0.18, vo.outputs['Distance']), present)
+            fine = nb.noise(Q, 1.6, 6.0, 0.62).outputs['Fac']
+            return nb.smooth(0.25, 0.55, nb.math('MULTIPLY', puff, nb.math('ADD', -0.1, nb.math('MULTIPLY', fine, 1.7))))
+        nb_cover_lo = 0.42
+        nz1 = puffs(Pc)
+        nz2 = puffs(P2)
+        dens = nb.math('MULTIPLY', nz1, nb.math('ADD', 0.5, nb.math('MULTIPLY', cover, 2.0)), clamp=True)
+    else:
+        nz1 = nb.noise(Pc, 0.28, 5.0, 0.55).outputs['Fac']
+        nz2 = nb.noise(P2, 0.28, 5.0, 0.55).outputs['Fac']
+        big = nb.noise(Pc, 0.07, 1.0, 0.5).outputs['Fac']
+        cover = nb.math('ADD', cover, nb.math('MULTIPLY', nb.math('SUBTRACT', big, 0.5), 1.1))
+        # coverage threshold
+        lo = nb.math('SUBTRACT', 1.0, cover)
+        dens = nb.math('MULTIPLY', nb.math('SUBTRACT', nz1, nb.math('MULTIPLY', lo, 0.55)), gain, clamp=True)
     dens = nb.math('MULTIPLY', dens, nb.math('SUBTRACT', 1.0, nb.math('POWER', nb.math('SUBTRACT', 1.0, up), 18.0)),
                    clamp=True)
-    lit = nb.math('ADD', nb.math('MULTIPLY', nb.math('SUBTRACT', nz1, nz2), 9.0), 0.45, clamp=True)
+    lit = nb.math('ADD', nb.math('MULTIPLY', nb.math('SUBTRACT', nz1, nz2), 1.3 if PAL_CUMULUS() else 9.0), 0.5 if PAL_CUMULUS() else 0.45, clamp=True)
     ccol = nb.mix(lit, cl_dark, cl_lit)
     # clouds near the sun catch the glow
     ccol = nb.mix(nb.math('MULTIPLY', g1, 0.7), ccol, glow, blend='ADD')
@@ -431,11 +490,25 @@ def build_flat_world():
     return w
 
 
-def sky_palette(el_deg):
-    els = [k[0] for k in SKY_KEYS]
+# the sunny look: saturated blue sky, white cumulus, warm golden hour, blue dusk
+SKY_KEYS_BRIGHT = [
+    # el,   zenith,               horizon,             sunglow,             cloud_lit,          cloud_dark
+    (-40, (0.0022, 0.0040, 0.0110), (0.0050, 0.0080, 0.0160), (0.000, 0.000, 0.000), (0.008, 0.011, 0.020), (0.002, 0.003, 0.005)),
+    (-14, (0.0040, 0.0095, 0.0320), (0.016, 0.020, 0.040), (0.030, 0.014, 0.008), (0.016, 0.020, 0.036), (0.004, 0.005, 0.010)),
+    (-6, (0.014, 0.036, 0.120), (0.200, 0.120, 0.090), (0.460, 0.160, 0.050), (0.240, 0.140, 0.130), (0.028, 0.034, 0.064)),
+    (0, (0.045, 0.095, 0.250), (0.700, 0.420, 0.250), (1.500, 0.560, 0.160), (1.300, 0.660, 0.340), (0.110, 0.095, 0.130)),
+    (6, (0.075, 0.165, 0.420), (0.900, 0.680, 0.450), (1.250, 0.620, 0.240), (1.450, 1.020, 0.680), (0.290, 0.270, 0.320)),
+    (18, (0.060, 0.190, 0.580), (0.500, 0.600, 0.750), (0.550, 0.420, 0.260), (1.500, 1.440, 1.340), (0.420, 0.470, 0.580)),
+    (50, (0.050, 0.180, 0.620), (0.450, 0.580, 0.760), (0.330, 0.290, 0.230), (1.600, 1.560, 1.500), (0.450, 0.500, 0.620)),
+]
+
+
+def sky_palette(el_deg, look='dark'):
+    keys = SKY_KEYS_BRIGHT if look == 'bright' else SKY_KEYS
+    els = [k[0] for k in keys]
     out = []
     for c in range(1, 6):
-        cols = np.array([k[c] for k in SKY_KEYS])
+        cols = np.array([k[c] for k in keys])
         out.append(tuple(float(np.interp(el_deg, els, cols[:, i])) for i in range(3)))
     return out
 
@@ -485,22 +558,22 @@ def mat_terrain():
     z = nb.sep(pos)[2]
     n1 = nb.noise(pos, 0.08, 3.0, 0.6).outputs['Fac']
     n2 = nb.noise(pos, 0.9, 3.0, 0.6).outputs['Fac']
-    rock = nb.mix(n2, (0.075, 0.068, 0.062, 1), (0.21, 0.19, 0.165, 1))
-    sand = nb.mix(n1, (0.17, 0.15, 0.12, 1), (0.27, 0.235, 0.185, 1))
+    rock = nb.mix(n2, P['rock'][0] + (1,), P['rock'][1] + (1,))
+    sand = nb.mix(n1, P['sand'][0] + (1,), P['sand'][1] + (1,))
     flat = nb.smooth(0.78, 0.93, nz)
     col = nb.mix(nb.math('MULTIPLY', flat, nb.smooth(0.42, 0.72, nb.math('ADD', n1, 0.1))), rock, sand)
     # trampled, dusty construction yard around the podium
     x_, y_, _ = nb.sep(pos)
     rr = nb.vmath('LENGTH', nb.comb(x_, y_, 0.0))
     yardm = nb.math('MULTIPLY', nb.smooth(80.0, 58.0, rr), flat)
-    dust = nb.mix(nb.noise(pos, 0.25, 4.0, 0.6).outputs['Fac'], (0.17, 0.155, 0.135, 1), (0.26, 0.24, 0.21, 1))
+    dust = nb.mix(nb.noise(pos, 0.25, 4.0, 0.6).outputs['Fac'], P['dust'][0] + (1,), P['dust'][1] + (1,))
     col = nb.mix(yardm, col, dust)
     # sparse dry scrub
     scrub = nb.math('MULTIPLY', flat, nb.smooth(0.58, 0.66, nb.noise(pos, 0.35, 3.0, 0.6).outputs['Fac']))
-    col = nb.mix(nb.math('MULTIPLY', scrub, 0.8), col, (0.14, 0.15, 0.07, 1))
+    col = nb.mix(nb.math('MULTIPLY', scrub, P.get('scrub_k', 0.8)), col, P['scrub_ground'] + (1,))
     # wet, dark rock at the waterline
     wet = nb.smooth(1.6, 0.2, z)
-    col = nb.mix(nb.math('MULTIPLY', wet, 0.75), col, (0.035, 0.035, 0.035, 1))
+    col = nb.mix(nb.math('MULTIPLY', wet, 0.75), col, P['wet'] + (1,))
     b = principled(nb, col, rough=nb.math('SUBTRACT', 0.95, nb.math('MULTIPLY', wet, 0.5)), spec=0.3)
     bump = nb.new('ShaderNodeBump')
     bump.inputs['Strength'].default_value = 0.6
@@ -570,8 +643,8 @@ def mat_water(foam_img, extent):
     foam_attr = nb.attr('foam').outputs['Fac']
     whitecap = nb.smooth(0.45, 0.95, foam_attr)
     foam = nb.math('MAXIMUM', surf, nb.math('MULTIPLY', whitecap, 0.55))
-    base = nb.mix(shallow, (0.006, 0.020, 0.028, 1), (0.02, 0.07, 0.07, 1))
-    col = nb.mix(foam, base, (0.55, 0.58, 0.58, 1))
+    base = nb.mix(shallow, P['water'][0] + (1,), P['water'][1] + (1,))
+    col = nb.mix(foam, base, P['foam'] + (1,))
     b = principled(nb, col, rough=nb.math('ADD', 0.05, nb.math('MULTIPLY', foam, 0.8)), spec=0.5)
     b.inputs['IOR'].default_value = 1.33
     bump = nb.new('ShaderNodeBump')
@@ -611,9 +684,9 @@ def mat_rock():
     pos = geo.outputs['Position']
     z = nb.sep(pos)[2]
     n2 = nb.noise(pos, 0.7, 4.0, 0.6).outputs['Fac']
-    col = nb.mix(n2, (0.06, 0.055, 0.05, 1), (0.2, 0.18, 0.155, 1))
+    col = nb.mix(n2, P['boulder'][0] + (1,), P['boulder'][1] + (1,))
     wet = nb.smooth(1.4, 0.0, z)
-    col = nb.mix(nb.math('MULTIPLY', wet, 0.8), col, (0.025, 0.025, 0.028, 1))
+    col = nb.mix(nb.math('MULTIPLY', wet, 0.8), col, P['boulder_wet'] + (1,))
     b = principled(nb, col, rough=nb.math('SUBTRACT', 0.9, nb.math('MULTIPLY', wet, 0.55)), spec=0.35)
     bump = nb.new('ShaderNodeBump')
     bump.inputs['Strength'].default_value = 0.5
@@ -984,6 +1057,80 @@ def statue_zeus(mat):
     return o, so
 
 
+def _evaluated_arrays(o):
+    link(o)
+    dg = bpy.context.evaluated_depsgraph_get()
+    dg.update()
+    me = bpy.data.meshes.new_from_object(o.evaluated_get(dg))
+    bpy.data.objects.remove(o)
+    V = np.array([v.co[:] for v in me.vertices])
+    F = [list(p.vertices) for p in me.polygons]
+    bpy.data.meshes.remove(me)
+    F = np.array([f if len(f) == 4 else f + [f[-1]] * (4 - len(f)) for f in F])
+    return V, F
+
+
+def statue_zeus_fine(mat):
+    """Zeus Soter for close-ups (6.2 m): bearded head, raised right arm with a
+    long sceptre, the left forearm held forward, a himation wrapped round the
+    hips and legs and thrown over the left shoulder.  Faces +y."""
+    s = 6.2 / 1.9
+    J = [(0, 0, 0.98), (0, 0.01, 1.18), (0, 0.0, 1.38), (0, 0.0, 1.55), (0, 0.02, 1.665), (0, 0.0, 1.8),
+         (0, 0.085, 1.6),
+         (-0.2, 0, 1.5), (-0.27, 0.1, 1.3), (-0.24, 0.32, 1.22),
+         (0.2, 0, 1.5), (0.33, 0.02, 1.72), (0.39, 0.04, 1.94),
+         (-0.1, 0, 0.92), (-0.11, 0.03, 0.5), (-0.11, 0.02, 0.07),
+         (0.1, 0, 0.92), (0.14, -0.03, 0.5), (0.16, -0.07, 0.07)]
+    E = [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (4, 6), (2, 7), (7, 8), (8, 9), (2, 10), (10, 11), (11, 12),
+         (0, 13), (13, 14), (14, 15), (0, 16), (16, 17), (17, 18)]
+    R = [0.165, 0.15, 0.185, 0.068, 0.1, 0.095, 0.065, 0.085, 0.06, 0.05, 0.085, 0.06, 0.05,
+         0.1, 0.075, 0.055, 0.1, 0.075, 0.055]
+    J = [(x * s, y * s, z * s) for x, y, z in J]
+    body = skin_figure('Statue', J, E, [r * s for r in R], mat, subsurf=2)
+    # accessories mesh: himation skirt (lofted, folded), shoulder sash, sceptre, base
+    parts_V, parts_F = [], []
+
+    def add(V, F):
+        off = sum(len(v) for v in parts_V)
+        parts_V.append(np.asarray(V, float))
+        parts_F.append(np.asarray(F) + off)
+    nr, nz = 28, 9
+    V, F = [], []
+    for k in range(nz):
+        f = k / (nz - 1)
+        z = (1.05 - 0.95 * f) * s
+        rx, ry = (0.25 + 0.1 * f) * s, (0.19 + 0.09 * f) * s
+        for i in range(nr):
+            a = 2 * math.pi * i / nr
+            fold = 1 + (0.03 + 0.07 * f) * math.sin(9 * a + 2.5 * f) + 0.03 * math.sin(4 * a - 1.3)
+            hem = 0.05 * s * f ** 4 * math.sin(3 * a + 0.8)
+            V.append((rx * fold * math.cos(a), ry * fold * math.sin(a) - 0.02 * s, z + hem))
+    for k in range(nz - 1):
+        for i in range(nr):
+            j = (i + 1) % nr
+            F.append((k * nr + i, k * nr + j, (k + 1) * nr + j, (k + 1) * nr + i))
+    add(V, F)
+    sash = skin_figure('Sash', [(x * s, y * s, z * s) for x, y, z in
+                                ((0.2, 0.06, 1.0), (0.05, 0.12, 1.22), (-0.14, 0.08, 1.45), (-0.2, -0.04, 1.52),
+                                 (-0.24, -0.12, 1.3), (-0.25, -0.1, 0.95))],
+                       [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5)], [0.1 * s, 0.09 * s, 0.085 * s, 0.09 * s, 0.1 * s, 0.09 * s],
+                       mat, subsurf=1)
+    add(*_evaluated_arrays(sash))
+    n = 8
+    ang = np.linspace(0, 2 * np.pi, n, endpoint=False)
+    for (cx, cy, z0, z1, r0, r1) in ((0.39 * s, 0.05 * s, -0.15, 2.45 * s, 0.065, 0.05),   # sceptre
+                                     (0.39 * s, 0.05 * s, 2.45 * s, 2.45 * s + 0.35, 0.14, 0.02),
+                                     (0.0, 0.0, -0.2, 0.05, 0.62, 0.58)):                  # bronze base
+        bot = np.stack([cx + r0 * np.cos(ang), cy + r0 * np.sin(ang), np.full(n, z0)], 1)
+        top = np.stack([cx + r1 * np.cos(ang), cy + r1 * np.sin(ang), np.full(n, z1)], 1)
+        FF = [(i, (i + 1) % n, n + (i + 1) % n, n + i) for i in range(n)]
+        FF += [(2 * n, (i + 1) % n, i, i) for i in range(n)] + [(2 * n + 1, n + i, n + (i + 1) % n, n + (i + 1) % n) for i in range(n)]
+        add(np.concatenate([bot, top, [[cx, cy, z0], [cx, cy, z1]]]), FF)
+    me = mesh_from_arrays('StatueDrapery', np.concatenate(parts_V), np.concatenate(parts_F), mats=[mat], smooth=True)
+    so = bpy.data.objects.new('Sceptre', me)
+    return body, so
+
+
 def triton(mat, name):
     """Kneeling Triton blowing a conch (about 3 m)."""
     J = [(0, 0, 0.6), (0, 0, 1.0), (0, 0.05, 1.3), (0, 0.08, 1.48), (0, 0.1, 1.62),
@@ -1109,6 +1256,57 @@ def build_timber(sched):
     return tb.finalize()
 
 
+def build_quay_blocks(pb, rng):
+    """The jetty and its T-head built of ashlar courses, paved on top, with
+    stone bollards along the berths (for close shots)."""
+    rects = [(30.0, 42.0, -100.0, -64.0), (25.0, 47.0, -108.0, -100.0)]
+    for (x0, x1, y0, y1) in rects:
+        pb.add(G.box((x0 + x1) / 2, (y0 + y1) / 2, -3.0, x1 - x0 - 1.6, y1 - y0 - 1.6, 5.7), mat=0, tone=0.5)
+    for c in range(3):
+        z0 = -0.2 + c * 1.0
+        for (x0, x1, y0, y1) in rects:
+            edges = [((x0, y0), (x1, y0)), ((x1, y0), (x1, y1)), ((x1, y1), (x0, y1)), ((x0, y1), (x0, y0))]
+            for (ax, ay), (bx, by) in edges:
+                L = math.hypot(bx - ax, by - ay)
+                ux, uy = (bx - ax) / L, (by - ay) / L
+                nx, ny = uy, -ux                      # outward normal (CCW rectangle)
+                s = 1.2 - 1.1 * (c % 2)
+                while s < L:
+                    bl = rng.uniform(1.8, 2.6)
+                    a, b = max(s, 1.2), min(s + bl, L)
+                    if b - a > 0.3:
+                        p = [(ax + ux * a, ay + uy * a), (ax + ux * b, ay + uy * b),
+                             (ax + ux * b - nx * 1.2, ay + uy * b - ny * 1.2), (ax + ux * a - nx * 1.2, ay + uy * a - ny * 1.2)]
+                        pb.add(G.quad_slab(p, z0, z0 + 0.98), mat=0, tone=rng.random())
+                    s += bl
+    # paving
+    for (x0, x1, y0, y1) in rects:
+        y = y0
+        row = 0
+        while y < y1 - 0.01:
+            h = min(1.5, y1 - y)
+            x = x0 - (0.9 if row % 2 else 0.0)
+            while x < x1 - 0.01:
+                w = rng.uniform(1.6, 2.4)
+                a, b = max(x, x0), min(x + w, x1)
+                if b - a > 0.2:
+                    pb.add(G.quad_slab([(a, y), (b, y), (b, y + h), (a, y + h)], 2.78, 2.95), mat=3,
+                           tone=rng.random())
+                x += w
+            y += h
+            row += 1
+    for yb in np.arange(-98.0, -64.0, 7.0):
+        pb.add(G.box(41.4, yb, 2.95, 0.45, 0.45, 0.65), mat=0, tone=0.3)
+    for (cx, cy, n_l) in ((33.2, -79.0, 2), (33.4, -71.0, 3), (29.5, -104.5, 2)):
+        for L in range(n_l):
+            for i in range(3 - L):
+                for j in range(2):
+                    pb.add(G.box(cx + (j - 0.5) * 1.25, cy + (i - (2 - L) / 2) * 2.0, 2.95 + L * 0.9, 1.15, 1.9, 0.88,
+                                 rng.uniform(-0.03, 0.03)), mat=4, tone=rng.random())
+    for xb in (27.0, 33.0, 39.0, 45.0):
+        pb.add(G.box(xb, -107.4, 2.95, 0.45, 0.45, 0.65), mat=0, tone=0.3)
+
+
 def build_props(coll, mats):
     """Static site props: tents, huts, quay, timber piles, the Heptastadion."""
     pb = G.HexBatch('props')
@@ -1123,8 +1321,11 @@ def build_props(coll, mats):
         pb.add(G.box(cx, cy, GROUND_Z - 0.2, 7.0, 5.0, 3.0, 0.1), mat=0)
         pb.add(G.tent(cx, cy, GROUND_Z + 2.8, 7.6, 5.6, 1.3, 0.1), mat=1)
     # quay on the south shore where the stone barges dock
-    pb.add(G.box(36, -84, -3.0, 12.0, 40.0, 5.8, 0.0), mat=0)
-    pb.add(G.box(36, -104, -3.0, 22.0, 8.0, 5.8, 0.0), mat=0)
+    if P is PALETTES['bright']:
+        build_quay_blocks(pb, rng)
+    else:
+        pb.add(G.box(36, -84, -3.0, 12.0, 40.0, 5.8, 0.0), mat=0)
+        pb.add(G.box(36, -104, -3.0, 22.0, 8.0, 5.8, 0.0), mat=0)
     # timber piles
     for i in range(3):
         cx, cy = 48 + i * 5, 30 - i * 6
@@ -1279,7 +1480,7 @@ def mat_city_mat():
     fs = nb.attr('fsize').outputs['Vector']
     u, v, _ = nb.sep(uv)
     w, h, _ = nb.sep(fs)
-    base = nb.mix(tone, (0.42, 0.38, 0.31, 1), (0.62, 0.58, 0.5, 1))
+    base = nb.mix(tone, P['city'][0] + (1,), P['city'][1] + (1,))
     # windows: grid cells, randomly lit at night
     cu = nb.math('FLOOR', nb.math('DIVIDE', u, 3.2))
     cv = nb.math('FLOOR', nb.math('DIVIDE', v, 3.4))
@@ -1349,7 +1550,7 @@ def crane_mesh(mats, mast_h=9.0, boom_len=13.0, boom_el=55.0):
     return hex_mesh('CraneMesh', cb, np.ones(len(cb.t_on), bool), mats), tip
 
 
-def ship_mesh(mats, length=22.0, beam_w=6.0, sail=True):
+def ship_mesh(mats, length=22.0, beam_w=6.0, sail=True, mast=True):
     """Hellenistic merchantman: lofted hull, stern post, mast, yard, square sail."""
     ns, nt = 16, 9
     V = []
@@ -1374,13 +1575,18 @@ def ship_mesh(mats, length=22.0, beam_w=6.0, sail=True):
     hull = mesh_from_arrays('Hull', np.array(V), np.array(Q), mats=[mats[0]], smooth=True)
     sb = G.HexBatch('rig')
     sb.add(G.box(0, 0, 0.9, length * 0.8, beam_w * 0.75, 0.25), mat=0)                # deck
-    sb.add(G.beam([-length * 0.5, 0, 3.0], [-length * 0.62, 0, 5.2], 0.5), mat=0)       # stern post
-    sb.add(G.beam([length * 0.05, 0, 1.0], [length * 0.05, 0, 15.0], 0.4), mat=0)       # mast
-    sb.add(G.beam([length * 0.05, -6.5, 14.2], [length * 0.05, 6.5, 14.2], 0.3), mat=0)  # yard
+    if mast:
+        sb.add(G.beam([-length * 0.5, 0, 3.0], [-length * 0.62, 0, 5.2], 0.5), mat=0)   # stern post
+    else:
+        sb.add(G.beam([-length * 0.5, 0, 2.2], [-length * 0.55, 0, 3.4], 0.3), mat=0)
+    if mast:
+        sb.add(G.beam([length * 0.05, 0, 1.0], [length * 0.05, 0, 15.0], 0.4), mat=0)       # mast
+        sb.add(G.beam([length * 0.05, -6.5, 14.2], [length * 0.05, 6.5, 14.2], 0.3), mat=0)  # yard
     if sail:
         sb.add(G.quad_slab([[length * 0.05 - 0.1, -6.2], [length * 0.05 + 0.1, -6.2],
                             [length * 0.05 + 0.1, 6.2], [length * 0.05 - 0.1, 6.2]], 5.0, 14.1), mat=1)
-    sb.add(G.box(-length * 0.3, 0, 1.1, 4.0, 3.2, 2.0), mat=0)                           # deck house
+    if mast:
+        sb.add(G.box(-length * 0.3, 0, 1.1, 4.0, 3.2, 2.0), mat=0)                       # deck house
     sb = sb.finalize()
     rig = hex_mesh('Rig', sb, np.ones(len(sb.t_on), bool), mats)
     return hull, rig
@@ -1396,12 +1602,90 @@ def barge_cargo_mesh(mat):
     return hex_mesh('Cargo', bb, np.ones(len(bb.t_on), bool), [mat])
 
 
+# ============================================================ guy derrick
+# A guyed derrick on the octagon roof for the lantern and the statue: a fixed
+# mast held by three guys (one down to the first terrace), a boom hinged on
+# the mast that slews and whose tip reaches exactly over the axis of the tower.
+DERRICK_PHI = math.radians(135.0)
+DERRICK_R = 8.24                                      # boom reach = mast distance from the axis
+DERRICK_C = (DERRICK_R * math.cos(DERRICK_PHI), DERRICK_R * math.sin(DERRICK_PHI))
+DERRICK_HEEL = 6.0                                    # boom heel above the roof: clears the lantern scaffold
+DERRICK_EL = math.radians(65.0)
+DERRICK_BOOM = DERRICK_R / math.cos(DERRICK_EL)
+DERRICK_MAST = 25.0
+DERRICK_TIP = (DERRICK_R, 0.0, DERRICK_HEEL + DERRICK_BOOM * math.sin(DERRICK_EL))   # boom frame
+THETA_CENTER = DERRICK_PHI + math.pi                  # boom slew that puts the tip over the axis
+THETA_PARK = THETA_CENTER - math.radians(55.0)        # tip over the statue's parking spot
+STATUE_PARK = (DERRICK_C[0] + DERRICK_R * math.cos(THETA_PARK), DERRICK_C[1] + DERRICK_R * math.sin(THETA_PARK))
+STATUE_LIFT_Z = 105.6                                 # clears scaffold, dome and pedestal while slewing
+STATUE_HOOK = 6.0                                     # sling point above the statue's base
+DERRICK_WINCH = (DERRICK_C[0] + 1.5 * math.cos(DERRICK_PHI - math.pi / 2),
+                 DERRICK_C[1] + 1.5 * math.sin(DERRICK_PHI - math.pi / 2))
+
+
+def build_derrick(S, coll):
+    cx, cy = DERRICK_C
+    z0 = T2_ROOF
+    out = np.array([math.cos(DERRICK_PHI), math.sin(DERRICK_PHI)])
+    tan = np.array([-out[1], out[0]])
+    C2 = np.array([cx, cy])
+    mb = G.HexBatch('derrick_mast')
+    mb.add(G.beam([cx, cy, z0], [cx, cy, z0 + DERRICK_MAST], 0.42), mat=0)
+    for a, b in ((C2 - 2.0 * tan, C2 + 2.0 * tan), (C2 - 2.2 * out, C2 + 0.55 * out)):
+        mb.add(G.beam(np.append(a, z0 + 0.18), np.append(b, z0 + 0.18), 0.36), mat=0)
+    head = np.array([cx, cy, z0 + DERRICK_MAST - 0.4])
+    anchors = [np.array([-11.5, 11.5, T1_ROOF + 0.15]), np.array([-1.5, 8.7, z0 + 0.25]),
+               np.array([-8.7, 1.5, z0 + 0.25])]
+    for A in anchors:
+        mb.add(G.beam(head, A, 0.06), mat=1)
+        mb.add(G.box(A[0], A[1], A[2] - 0.2, 0.7, 0.7, 0.45), mat=2)
+    # windlass beside the mast foot: two trestles and a drum
+    wx, wy = DERRICK_WINCH
+    for s in (-0.8, 0.8):
+        p = np.array([wx, wy]) + s * out
+        mb.add(G.beam(np.append(p - 0.45 * tan, z0), np.append(p, z0 + 1.2), 0.16), mat=0)
+        mb.add(G.beam(np.append(p + 0.45 * tan, z0), np.append(p, z0 + 1.2), 0.16), mat=0)
+    # hoist rope from the heel sheave down to the drum
+    mb.add(G.beam([cx, cy, z0 + DERRICK_HEEL], [wx, wy, z0 + 1.25], 0.07), mat=1)
+    mb.finalize()
+    S.dmast = link(bpy.data.objects.new('DerrickMast', hex_mesh('DerrickMast', mb, np.ones(len(mb.t_on), bool),
+                                                                [S.m_wood, S.m_rope, S.m_stone])), coll)
+    S.dmast.pass_index = PASS['crane']
+    # windlass drum (turns while hoisting) with its handspikes
+    wb = G.HexBatch('winch')
+    wb.add(G.beam([-0.95, 0, 0], [0.95, 0, 0], 0.42), mat=0)
+    for k in range(4):
+        a = k * math.pi / 2
+        for s in (-0.75, 0.75):
+            wb.add(G.beam([s, 0.2 * math.cos(a), 0.2 * math.sin(a)], [s, 0.95 * math.cos(a), 0.95 * math.sin(a)], 0.07), mat=0)
+    wb.finalize()
+    S.dwinch = link(bpy.data.objects.new('DerrickWinch', hex_mesh('DerrickWinch', wb, np.ones(len(wb.t_on), bool),
+                                                                  [S.m_wood])), coll)
+    S.dwinch.pass_index = PASS['crane']
+    S.dwinch.matrix_world = (Matrix.Translation((wx, wy, z0 + 1.2)) @ Matrix.Rotation(DERRICK_PHI, 4, 'Z'))
+    S.dwinch_base = S.dwinch.matrix_world.copy()
+    # the boom (origin on the mast axis at roof level, +x along the boom)
+    bb = G.HexBatch('derrick_boom')
+    tip = np.array(DERRICK_TIP)
+    heel = np.array([0.0, 0.0, DERRICK_HEEL])
+    bb.add(G.beam(heel + [0.35, 0, 0], tip, 0.4, 0.3), mat=0)
+    bb.add(G.box(tip[0], 0, tip[2] - 0.45, 0.5, 0.45, 0.6), mat=0)                   # tip block
+    mh = np.array([0.0, 0.0, DERRICK_MAST - 0.5])
+    for dy in (-0.12, 0.12):                                                         # luffing tackle
+        bb.add(G.beam(mh + [0.3, dy, 0], tip + [0, dy, 0.1], 0.05), mat=1)
+    bb.add(G.beam(tip + [0, 0, -0.35], heel + [0.4, 0, -0.35], 0.06), mat=1)         # hoist fall
+    bb.finalize()
+    return hex_mesh('DerrickBoom', bb, np.ones(len(bb.t_on), bool), [S.m_wood, S.m_rope])
+
+
 # ============================================================ build
 class State:
     pass
 
 
-def build(res=(1280, 720)):
+def build(res=(1280, 720), look='dark', derrick=False):
+    global P
+    P = PALETTES[look]
     bpy.ops.wm.read_factory_settings(use_empty=True)
     sc = bpy.context.scene
     sc.render.engine = 'CYCLES'
@@ -1411,21 +1695,22 @@ def build(res=(1280, 720)):
     sc.render.fps = TL.FPS
     sc.frame_start, sc.frame_end = 0, TL.NFRAMES - 1
     S = State()
+    S.look = look
     S.sched = Schedule()
     coll = sc.collection
 
     # materials
-    S.m_stone = mat_masonry('Limestone', (0.74, 0.66, 0.53), (0.30, 0.26, 0.21))
-    S.m_stone_dark = mat_masonry('Podium', (0.58, 0.53, 0.45), (0.22, 0.20, 0.17), var=0.12)
-    S.m_floor = mat_masonry('Paving', (0.55, 0.49, 0.40), (0.20, 0.17, 0.14), width=0.04)
-    S.m_wood = mat_wood('Timber', (0.42, 0.30, 0.18))
-    S.m_plank = mat_wood('Planks', (0.52, 0.40, 0.26), width=0.04)
-    S.m_rope = mat_simple('Rope', (0.12, 0.09, 0.06), 0.9)
+    S.m_stone = mat_masonry('Limestone', *P['stone'])
+    S.m_stone_dark = mat_masonry('Podium', *P['podium'], var=0.12)
+    S.m_floor = mat_masonry('Paving', *P['paving'], width=0.04)
+    S.m_wood = mat_wood('Timber', P['wood'])
+    S.m_plank = mat_wood('Planks', P['plank'], width=0.04)
+    S.m_rope = mat_simple('Rope', P['rope'], 0.9)
     S.m_bronze = mat_simple('Bronze', (0.62, 0.42, 0.20), 0.32, 1.0)
-    S.m_cloth = mat_simple('Canvas', (0.55, 0.49, 0.40), 0.9)
-    S.m_cloth2 = mat_simple('CanvasDark', (0.38, 0.22, 0.14), 0.9)
-    S.m_hull = mat_wood('Hull', (0.16, 0.10, 0.06))
-    S.m_sail = mat_simple('Sail', (0.62, 0.55, 0.44), 0.9)
+    S.m_cloth = mat_simple('Canvas', P['cloth'], 0.9)
+    S.m_cloth2 = mat_simple('CanvasDark', P['cloth2'], 0.9)
+    S.m_hull = mat_wood('Hull', P['hull'])
+    S.m_sail = mat_simple('Sail', P['sail'], 0.9)
     S.m_worker = mat_objcolor('Worker')
     S.m_fire = mat_fire()
     S.m_torch = mat_torch()
@@ -1451,7 +1736,7 @@ def build(res=(1280, 720)):
     S.lantern = build_lantern(coll, S.m_stone, S.m_bronze)
 
     # statue + sceptre, tritons
-    S.statue, S.sceptre = statue_zeus(S.m_bronze)
+    S.statue, S.sceptre = (statue_zeus_fine if look == 'bright' else statue_zeus)(S.m_bronze)
     link(S.statue, coll)
     link(S.sceptre, coll)
     S.sceptre.parent = S.statue
@@ -1470,11 +1755,11 @@ def build(res=(1280, 720)):
         S.tritons += [(tr, t_on), (base, t_on - 0.1)]
 
     # props, city
-    S.props = build_props(coll, [S.m_stone_dark, S.m_wood, S.m_cloth, S.m_stone_dark])
+    S.props = build_props(coll, [S.m_stone_dark, S.m_wood, S.m_cloth, S.m_stone_dark, S.m_stone])
     S.city = build_city(coll, S.m_city)
-    build_island_life(coll, [mat_simple('Scrub', (0.11, 0.13, 0.065), 0.95),
-                             mat_wood('PalmTrunk', (0.2, 0.15, 0.1)),
-                             mat_simple('Frond', (0.07, 0.1, 0.04), 0.8),
+    build_island_life(coll, [mat_simple('Scrub', P['scrub'], 0.95),
+                             mat_wood('PalmTrunk', P['trunk']),
+                             mat_simple('Frond', P['frond'], 0.8),
                              S.m_city, S.m_stone])
     S.stack_obj = link(bpy.data.objects.new('Stacks', bpy.data.meshes.new('Stacks')), coll)
     S.stack_obj.pass_index = PASS['props']
@@ -1542,6 +1827,10 @@ def build(res=(1280, 720)):
     load_b.finalize()
     load_mesh = hex_mesh('LoadBlock', load_b, np.ones(2, bool), [S.m_stone, S.m_rope])
     cm_tall, S.crane_tip_tall = crane_mesh([S.m_wood, S.m_rope], mast_h=12.0, boom_len=20.0, boom_el=65.0)
+    S.derrick = derrick
+    if derrick:
+        cm_tall = build_derrick(S, coll)
+        S.crane_tip_tall = np.array(DERRICK_TIP)
     for i in range(6):
         c = link(bpy.data.objects.new(f'Crane{i}', cm_tall if i == 4 else cm), coll)
         r = link(bpy.data.objects.new(f'Rope{i}', rope_mesh), coll)
@@ -1556,8 +1845,7 @@ def build(res=(1280, 720)):
     # workers
     wm = worker_mesh(S.m_worker)
     S.workers = []
-    palette = [(0.62, 0.58, 0.5), (0.55, 0.45, 0.32), (0.45, 0.2, 0.12), (0.7, 0.66, 0.58),
-               (0.35, 0.3, 0.25), (0.5, 0.36, 0.2)]
+    palette = P['workers']
     for i in range(70):
         o = link(bpy.data.objects.new(f'Worker{i}', wm), coll)
         o.color = palette[i % len(palette)] + (1.0,)
@@ -1576,7 +1864,7 @@ def build(res=(1280, 720)):
     S.barges = []
     cargo = barge_cargo_mesh(S.m_stone)
     for i in range(3):
-        hull, rig = ship_mesh([S.m_hull, S.m_sail], length=16.0, beam_w=6.5, sail=False)
+        hull, rig = ship_mesh([S.m_hull, S.m_sail], length=16.0, beam_w=6.5, sail=False, mast=look != 'bright')
         h = link(bpy.data.objects.new(f'Barge{i}', hull), coll)
         r = link(bpy.data.objects.new(f'BargeRig{i}', rig), coll)
         cg = link(bpy.data.objects.new(f'BargeCargo{i}', cargo), coll)
@@ -1675,30 +1963,68 @@ def top_ring_point(z, u, inset):
     return float(p[0]), float(p[1])
 
 
-def pose(S, t):
+def lantern_top(tc):
+    """Top of the lantern work (drum..pedestal) at construction time tc."""
+    p = TL.phase_progress('tier3', tc)
+    return T3_Z0 + p * (STATUE_Z - T3_Z0) if p > 0 else T2_ROOF
+
+
+def statue_track(p):
+    """Statue base position and derrick slew for hoist progress p (0..1).
+    Lift at the parking spot, slew with the load under the boom tip, lower."""
+    park = Vector((STATUE_PARK[0], STATUE_PARK[1], T2_ROOF + 0.05))
+    lift_z = STATUE_LIFT_Z
+    if p <= 0.3:
+        q = TL.ease_io(p / 0.3)
+        return Vector((park.x, park.y, park.z + (lift_z - park.z) * q)), THETA_PARK
+    if p <= 0.75:
+        q = TL.ease_io((p - 0.3) / 0.45)
+        th = THETA_PARK + (THETA_CENTER - THETA_PARK) * q
+        x = DERRICK_C[0] + DERRICK_R * math.cos(th)
+        y = DERRICK_C[1] + DERRICK_R * math.sin(th)
+        return Vector((x, y, lift_z)), th
+    q = TL.ease_io((p - 0.75) / 0.25)
+    return Vector((0.0, 0.0, lift_z + (STATUE_Z - lift_z) * q)), THETA_CENTER
+
+
+def pose(S, t, **kw):
+    """Set the scene for video time t of the 30-s film.
+
+    Keyword overrides decouple the clocks for other edits of the same scene:
+      tc        construction time (which blocks, scaffolds, cranes exist)
+      hour      time of day (sun, moon, sky)
+      life      continuous animation clock (flames, embers, torches, barges, ships)
+      hop_t     time-lapse clock for the 'jumping' workers, crane loads, stacks
+      sea_t, water_t, cloud_t, shadow_t, cover, shadow_cover
+      fire      beacon intensity 0..1, statue_p hoist progress 0..1
+      cam       (location, target, lens); traffic=False hides ships and barges
+    """
     sc = bpy.context.scene
-    hour = TL.clock(t)
+    tc = kw.get('tc', t)
+    hour = kw.get('hour', TL.clock(t))
+    life = kw.get('life', t)
+    hop_t = kw.get('hop_t', life)
     el, az = TL.sun_angles(hour)
     el_deg = math.degrees(el)
-    day = TL.daylight(t)
+    day = TL.smoothstep(math.radians(-7), math.radians(5), el)
     night = 1.0 - day
-    H = S.sched.height(t)
+    H = S.sched.height(tc)
 
     # --- masonry & timber
-    set_dynamic_mesh(S.mas_obj, 'Masonry', S.masonry, S.masonry.select(t), S.mas_mats)
-    set_dynamic_mesh(S.tim_obj, 'Timber', S.timber, S.timber.select(t), S.tim_mats)
+    set_dynamic_mesh(S.mas_obj, 'Masonry', S.masonry, S.masonry.select(tc), S.mas_mats)
+    set_dynamic_mesh(S.tim_obj, 'Timber', S.timber, S.timber.select(tc), S.tim_mats)
     for o, t_on in S.lantern + S.tritons:
-        o.hide_render = t < t_on
-    S.brazier.hide_render = t < TL.phase_time('tier3', 0.29)
+        o.hide_render = tc < t_on
+    S.brazier.hide_render = tc < TL.phase_time('tier3', 0.29)
 
     # --- stone stacks on the yard (depleted and re-stocked)
     sb = G.HexBatch('stacks')
     t_end = TL.PHASES['tier3'][1]
     for k, (cx, cy) in enumerate([(-38, -40), (-44, 8), (40, -46), (22, -54), (-20, -52), (46, 40)]):
-        if t > t_end + 0.8:
+        if tc > t_end + 0.8:
             layers = 0 if k % 2 else 1
         else:
-            layers = 1 + int(3.99 * smooth_rand(k + 50, t, 0.8))
+            layers = 1 + int(3.99 * smooth_rand(k + 50, hop_t, 0.8))
         for L in range(layers):
             for i in range(4 - (L > 1)):
                 for j in range(3):
@@ -1708,34 +2034,38 @@ def pose(S, t):
     set_dynamic_mesh(S.stack_obj, 'Stacks', sb, np.ones(len(sb.t_on), bool), [S.m_stone])
 
     # --- cranes: two on the rising walls, one per terrace later, two at the quay
-    tip = S.crane_tip
     t1a, t1b = TL.PHASES['tier1']
     t2a, t2b = TL.PHASES['tier2']
-    t3a, t3b = TL.PHASES['tier3']
     st0, st1 = TL.PHASES['statue']
     removal = TL.PHASES['scaf2_down'][0] + 0.4
+    statue_p = kw.get('statue_p')
+    if statue_p is None:
+        statue_p = TL.ease_io((tc - st0) / (st1 - st0))
     specs = []
     zt = max(H, PLAT_TOP)
-    if t1a - 0.6 < t < TL.PHASES['tier1cap'][1]:
+    if t1a - 0.6 < tc < TL.PHASES['tier1cap'][1]:
         zc = min(zt, T1_TOP)
         a = tier_size(zc) - T1_THICK * 0.5
         specs += [((a, a, zc), 0), ((-a, -a, zc), 1)]
-    if TL.PHASES['tier1cap'][1] - 0.3 < t < t2b + 0.4:
+    if TL.PHASES['tier1cap'][1] - 0.3 < tc < t2b + 0.4:
         zc = T1_ROOF
         specs += [((10.6, -10.6, zc), 2), ((-10.6, 10.6, zc), 3)]
-    if t2b - 0.2 < t < removal:
-        specs += [((6.0, 6.0, T2_ROOF), 4)]
-    if TL.PHASES['platform'][0] - 0.5 < t < removal + 0.5:
-        specs += [((34.0, -70.0, 2.8), 5)]
+    if t2b - 0.2 < tc < removal:
+        specs += [(((DERRICK_C[0], DERRICK_C[1], T2_ROOF) if S.derrick else (6.0, 6.0, T2_ROOF)), 4)]
+    if TL.PHASES['platform'][0] - 0.5 < tc < removal + 0.5:
+        specs += [(kw.get('crane5_loc', (34.0, -70.0, 2.8)), 5)]
     used = set()
+    hoisting_window = st0 - 0.4 < tc < st1 + 0.3 or 'statue_p' in kw
     for (loc, idx) in specs:
         c, r, ld_ = S.cranes[idx]
         used.add(idx)
         tip = S.crane_tip_tall if idx == 4 else S.crane_tip
-        slew = 2 * math.pi * smooth_rand(idx * 7 + 1, t, 1.6) + idx
-        hoisting_statue = idx == 4 and st0 - 0.4 < t < st1 + 0.3
+        slew = 2 * math.pi * smooth_rand(idx * 7 + 1, hop_t, 1.6) + idx
+        if idx == 4 and S.derrick:
+            slew = THETA_PARK + (THETA_CENTER - THETA_PARK) * smooth_rand(idx * 7 + 1, hop_t, 1.6)
+        hoisting_statue = idx == 4 and hoisting_window
         if hoisting_statue:
-            slew = math.atan2(-loc[1], -loc[0])
+            slew = statue_track(statue_p)[1] if S.derrick else math.atan2(-loc[1], -loc[0])
         c.hide_render = r.hide_render = False
         c.matrix_world = Matrix.Translation(loc) @ Matrix.Rotation(slew, 4, 'Z')
         tip_w = c.matrix_world @ Vector(tip)
@@ -1744,105 +2074,125 @@ def pose(S, t):
             ld_.hide_render = True
             continue
         base_z = GROUND_Z if idx in (0, 1, 5) else loc[2]
-        frac = hop(idx * 13 + 3, t, 3.0)
+        frac = hop(idx * 13 + 3, hop_t, 3.0)
         load_z = base_z + 1.0 + frac * (tip_w.z - base_z - 3.0)
+        if idx == 4 and S.derrick and math.hypot(tip_w.x, tip_w.y) < 7.0:
+            load_z = max(load_z, lantern_top(tc) + 1.2)     # never hang a load inside the lantern
         length = max(tip_w.z - load_z, 0.5)
         r.matrix_world = Matrix.Translation(tip_w) @ Matrix.Diagonal((1, 1, length, 1))
-        ld_.hide_render = hop(idx * 5 + 1, t, 3.0) < 0.3
+        ld_.hide_render = hop(idx * 5 + 1, hop_t, 3.0) < 0.3
         ld_.matrix_world = Matrix.Translation((tip_w.x, tip_w.y, load_z)) @ Matrix.Rotation(slew, 4, 'Z')
     for idx, (c, r, ld_) in enumerate(S.cranes):
         if idx not in used:
             c.hide_render = r.hide_render = ld_.hide_render = True
+    if S.derrick:
+        S.dmast.hide_render = S.dwinch.hide_render = 4 not in used
 
     # --- statue: waits on the terrace, hoisted, set on the pedestal
-    park = Vector((0.5, -7.6, T2_ROOF + 0.05))
-    final = Vector((0.0, 0.0, STATUE_Z))
     S.hoist.hide_render = True
-    if t < st0 - 0.5:
+    if tc < st0 - 0.5 and 'statue_p' not in kw:
         S.statue.hide_render = S.sceptre.hide_render = True
     else:
         S.statue.hide_render = S.sceptre.hide_render = False
-        p = TL.ease_io((t - st0) / (st1 - st0))
-        if p <= 0:
-            pos = park
+        p = statue_p
+        sway = 0.0
+        if S.derrick:
+            pos, _ = statue_track(p)
+            if 0 < p < 1:
+                sway = 0.04 * math.sin(life * 1.3)
+            yaw = kw.get('statue_yaw', math.radians(-100))
         else:
-            lift = Vector((final.x, final.y, final.z + 1.2))
-            if p < 0.6:
-                q = p / 0.6
-                pos = park.lerp(Vector((park.x * 0.3, park.y * 0.3, lift.z)), TL.ease_io(q))
+            park = Vector((0.5, -7.6, T2_ROOF + 0.05))
+            final = Vector((0.0, 0.0, STATUE_Z))
+            if p <= 0:
+                pos = park
             else:
-                q = (p - 0.6) / 0.4
-                pos = Vector((park.x * 0.3, park.y * 0.3, lift.z)).lerp(final, TL.ease_io(q))
+                lift = Vector((final.x, final.y, final.z + 1.2))
+                if p < 0.6:
+                    q = p / 0.6
+                    pos = park.lerp(Vector((park.x * 0.3, park.y * 0.3, lift.z)), TL.ease_io(q))
+                else:
+                    q = (p - 0.6) / 0.4
+                    pos = Vector((park.x * 0.3, park.y * 0.3, lift.z)).lerp(final, TL.ease_io(q))
+            if 0 < p < 1:
+                sway = 0.4 * math.sin(life * 9)
+            yaw = math.radians(-100)
         S.statue.location = pos
-        S.statue.rotation_euler = (0, 0, math.radians(-100) + (0.4 * math.sin(t * 9) if 0 < p < 1 else 0))
+        S.statue.rotation_euler = (0, 0, yaw + sway)
         if 0 < p < 1 and 4 in used:
             c, _, _ = S.cranes[4]
             tip_w = c.matrix_world @ Vector(S.crane_tip_tall)
-            top = pos + Vector((0, 0, 6.4))
+            top = pos + Vector((0, 0, STATUE_HOOK if S.derrick else 6.4))
             length = max(tip_w.z - top.z, 0.3)
             S.hoist.hide_render = False
-            S.hoist.matrix_world = Matrix.Translation((top.x, top.y, tip_w.z)) @ Matrix.Diagonal((1, 1, length, 1))
+            x, y = (tip_w.x, tip_w.y) if S.derrick else (top.x, top.y)
+            S.hoist.matrix_world = Matrix.Translation((x, y, tip_w.z)) @ Matrix.Diagonal((1, 1, length, 1))
+        if S.derrick and 4 in used:
+            ang = -statue_p * 9.0 if hoisting_window else -hop_t * 2.0
+            S.dwinch.matrix_world = S.dwinch_base @ Matrix.Rotation(ang, 4, 'X')
 
     # --- workers (time-lapse: they jump around a bit every few frames)
-    rngw = np.random.default_rng(int(t * TL.FPS / 3) + 1000)
-    building = t1a - 0.5 < t < removal
+    rngw = np.random.default_rng(int(hop_t * TL.FPS / 3) + 1000)
+    building = t1a - 0.5 < tc < removal
     n_top = 16 if building else 0
     active = 0.35 + 0.65 * day
     wi = 0
     for i in range(n_top):
         o = S.workers[wi]
         wi += 1
-        vis = building and hop(i + 300, t, 2.5) < active and H > PLAT_TOP + 0.5
+        vis = building and hop(i + 300, hop_t, 2.5) < active and H > PLAT_TOP + 0.5
         o.hide_render = not vis
         if vis:
-            zz = S.sched.height(t - 0.05)
+            zz = S.sched.height(tc - 0.05)
             if zz > T2_TOP:
                 zz = T2_ROOF
             th = T1_THICK if zz <= T1_TOP else T2_THICK
-            x, y = top_ring_point(zz, hop(i + 900, t, 3.0), th * 0.5)
+            x, y = top_ring_point(zz, hop(i + 900, hop_t, 3.0), th * 0.5)
             o.location = (x, y, zz)
             o.rotation_euler = (0, 0, rngw.uniform(0, 6.3))
     for i in range(14):   # on the scaffold planks just below the top
         o = S.workers[wi]
         wi += 1
-        vis = building and hop(i + 400, t, 2.0) < active and H > PLAT_TOP + 4
+        vis = building and hop(i + 400, hop_t, 2.0) < active and H > PLAT_TOP + 4
         o.hide_render = not vis
         if vis:
-            zz = PLAT_TOP + 2.0 * (math.floor((H - PLAT_TOP) / 2.0) - hop(i + 77, t, 2.0) * 2)
+            zz = PLAT_TOP + 2.0 * (math.floor((H - PLAT_TOP) / 2.0) - hop(i + 77, hop_t, 2.0) * 2)
             zz = max(PLAT_TOP + 2.0, min(zz, T2_TOP - 1))
-            if zz > T1_TOP + 1 and t > TL.PHASES['scaf1_down'][0]:
+            if zz > T1_TOP + 1 and tc > TL.PHASES['scaf1_down'][0]:
                 zz = max(zz, T2_Z0 + 2)
             size = tier_size(zz)
-            P = G.square_poly(size + 0.8) if zz <= T1_TOP else G.oct_poly(size + 0.75)
-            n = len(P)
-            s = hop(i + 555, t, 2.0) * n
+            Pl = G.square_poly(size + 0.8) if zz <= T1_TOP else G.oct_poly(size + 0.75)
+            n = len(Pl)
+            s = hop(i + 555, hop_t, 2.0) * n
             k = int(s) % n
-            p = P[k] + (P[(k + 1) % n] - P[k]) * (s - int(s))
+            p = Pl[k] + (Pl[(k + 1) % n] - Pl[k]) * (s - int(s))
             o.location = (p[0], p[1], zz + 0.05)
     for i in range(40):   # on the ground: stacks, quay, camp
         o = S.workers[wi]
         wi += 1
-        vis = hop(i + 500, t, 1.5) < (0.25 + 0.75 * day) * (1.0 if t < removal + 1 else 0.3)
+        vis = hop(i + 500, hop_t, 1.5) < (0.25 + 0.75 * day) * (1.0 if tc < removal + 1 else 0.3)
         o.hide_render = not vis
         if vis:
-            ang = 2 * math.pi * G._hash2(np.int64(i), np.int64(1), 1) + smooth_rand(i, t, 0.7) * 1.5
-            rad = 34 + 30 * G._hash2(np.int64(i), np.int64(2), 1) + 6 * smooth_rand(i + 40, t, 1.1)
+            ang = 2 * math.pi * G._hash2(np.int64(i), np.int64(1), 1) + smooth_rand(i, hop_t, 0.7) * 1.5
+            rad = 34 + 30 * G._hash2(np.int64(i), np.int64(2), 1) + 6 * smooth_rand(i + 40, hop_t, 1.1)
             x, y = rad * math.cos(ang), rad * math.sin(ang)
             o.location = (x, y, float(island_height(np.array([x]), np.array([y]))[0]))
             o.rotation_euler = (0, 0, ang + 1.6)
+    S.n_workers_used = wi
 
     # --- ships (daylight traffic in the harbour) and stone barges
+    traffic = kw.get('traffic', True)
     for i, (h, r) in enumerate(S.ships):
         speed = 90 + 60 * i
         y = -520 - 170 * i
-        x = ((t * speed + 900 * i) % 5200) - 2600
+        x = ((life * speed + 900 * i) % 5200) - 2600
         dirn = 1 if i % 2 == 0 else -1
         h.location = (x * dirn, y, 0.3)
         h.rotation_euler = (0, 0, 0 if dirn > 0 else math.pi)
-        h.hide_render = r.hide_render = day < 0.25
+        h.hide_render = r.hide_render = day < 0.25 or not traffic
     for i, (h, r, cg) in enumerate(S.barges):
         cyc = 3.2
-        ph = ((t + i * cyc / 3) % cyc) / cyc
+        ph = ((life + i * cyc / 3) % cyc) / cyc
         dock = Vector((36 + (i - 1) * 9, -118 - 6 * i, 0.4))
         far = Vector((360 + 80 * i, -700, 0.4))
         if ph < 0.35:
@@ -1854,7 +2204,7 @@ def pose(S, t):
         else:
             p = dock.lerp(far, TL.ease_io((ph - 0.6) / 0.4))
             loaded = False
-        active_b = TL.PHASES['platform'][0] < t < TL.PHASES['tier3'][1]
+        active_b = TL.PHASES['platform'][0] < tc < TL.PHASES['tier3'][1] and traffic
         h.location = p
         h.rotation_euler = (0, 0, math.atan2(far.y - dock.y, far.x - dock.x))
         h.hide_render = r.hide_render = not active_b
@@ -1867,13 +2217,14 @@ def pose(S, t):
     S.moon.rotation_euler = Vector(mdir).to_track_quat('Z', 'Y').to_euler()
     sun_k = TL.smoothstep(-1.5, 10.0, el_deg)
     warm = TL.smoothstep(2.0, 24.0, el_deg)
-    S.sun.data.energy = 6.5 * sun_k
+    S.sun.data.energy = kw.get('sun_energy', 6.5) * sun_k
     S.sun.data.color = (1.0, 0.52 + 0.4 * warm, 0.28 + 0.6 * warm)
     S.sun.hide_render = sun_k <= 0.0
     moon_up = max(0.0, mdir[2])
-    S.moon.data.energy = 0.42 * night * TL.smoothstep(0.0, 0.25, moon_up)
+    moon_k = kw.get('moon', 1.0)
+    S.moon.data.energy = 0.42 * night * TL.smoothstep(0.0, 0.25, moon_up) * kw.get('moon_light', moon_k)
     S.moon.hide_render = S.moon.data.energy <= 1e-4
-    zen, hor, glow, cl_lit, cl_dark = sky_palette(el_deg)
+    zen, hor, glow, cl_lit, cl_dark = sky_palette(el_deg, S.look)
     nt = S.world.node_tree.nodes
     for nm, col in (('zenith', zen), ('horizon', hor), ('sunglow', glow), ('cloud_lit', cl_lit),
                     ('cloud_dark', cl_dark)):
@@ -1882,38 +2233,46 @@ def pose(S, t):
         nt['sun_dir'].inputs[i].default_value = float(v)
     for i, v in enumerate(mdir):
         nt['moon_dir'].inputs[i].default_value = float(v)
-    nt['cloud_time'].outputs[0].default_value = t * 1.6
-    nt['moon'].outputs[0].default_value = 6.0 * night
+    nt['cloud_time'].outputs[0].default_value = kw.get('cloud_t', t * 1.6)
+    nt['cloud_gain'].outputs[0].default_value = kw.get('cloud_gain', 3.2)
+    nt['moon'].outputs[0].default_value = 6.0 * night * moon_k
     nt['sun_disc'].outputs[0].default_value = 30.0 * TL.smoothstep(-1.0, 1.0, el_deg)
-    nt['cover'].outputs[0].default_value = 0.6 + 0.1 * math.sin(t * 0.37) - 0.16 * TL.smoothstep(24.0, 27.0, t)
+    nt['cover'].outputs[0].default_value = kw.get(
+        'cover', 0.6 + 0.1 * math.sin(t * 0.37) - 0.16 * TL.smoothstep(24.0, 27.0, t))
 
-    S.m_cshadow.node_tree.nodes['shadow_time'].outputs[0].default_value = t * 260.0
-    S.m_cshadow.node_tree.nodes['shadow_cover'].outputs[0].default_value = 0.40 + 0.08 * math.sin(t * 0.37)
+    S.m_cshadow.node_tree.nodes['shadow_time'].outputs[0].default_value = kw.get('shadow_t', t * 260.0)
+    S.m_cshadow.node_tree.nodes['shadow_cover'].outputs[0].default_value = kw.get(
+        'shadow_cover', 0.40 + 0.08 * math.sin(t * 0.37))
     # --- water, city lights, ocean
-    S.ocean.time = t * 2.2
-    S.sea.data.materials[0].node_tree.nodes['water_time'].outputs[0].default_value = t * 0.9
+    S.ocean.time = kw.get('sea_t', t * 2.2)
+    S.sea.data.materials[0].node_tree.nodes['water_time'].outputs[0].default_value = kw.get('water_t', t * 0.9)
     S.m_city.node_tree.nodes['city_lights'].outputs[0].default_value = 6.0 * night
 
     # --- the beacon
     f0, f1 = TL.PHASES['fire']
-    fire_k = TL.ease((t - f0) / (f1 - f0))
-    flick = 0.85 + 0.15 * math.sin(t * 31.0) * math.sin(t * 17.3 + 1.0)
-    S.m_fire.node_tree.nodes['fire_k'].outputs[0].default_value = fire_k * (1.0 + 0.6 * max(0.0, 1 - (t - f0) / 0.5) * (t > f0))
-    S.m_fire.node_tree.nodes['fire_time'].outputs[0].default_value = t * 3.0
+    if 'fire' in kw:
+        fire_k = kw['fire']
+        surge = kw.get('fire_surge', 0.0)
+    else:
+        fire_k = TL.ease((tc - f0) / (f1 - f0))
+        surge = 0.6 * max(0.0, 1 - (tc - f0) / 0.5) * (tc > f0)
+    flick = 0.85 + 0.15 * math.sin(life * 31.0) * math.sin(life * 17.3 + 1.0)
+    S.m_fire.node_tree.nodes['fire_k'].outputs[0].default_value = fire_k * (1.0 + surge)
+    S.m_fire.node_tree.nodes['fire_time'].outputs[0].default_value = life * 3.0
     S.beacon.data.energy = 26000.0 * fire_k * flick
     S.beacon.hide_render = fire_k <= 0
     for i, fo in enumerate(S.flames):
         fo.hide_render = fire_k <= 0.01
-        sz = fire_k * (0.8 + 0.35 * smooth_rand(i + 70, t, 9.0))
-        fo.scale = (sz, sz, sz * (0.8 + 0.5 * smooth_rand(i + 90, t, 11.0)))
-        fo.rotation_euler = (0.18 * (smooth_rand(i + 20, t, 6.0) - 0.5), 0.18 * (smooth_rand(i + 30, t, 6.0) - 0.5), 0)
+        sz = fire_k * (0.8 + 0.35 * smooth_rand(i + 70, life, 9.0))
+        fo.scale = (sz, sz, sz * (0.8 + 0.5 * smooth_rand(i + 90, life, 11.0)))
+        fo.rotation_euler = (0.18 * (smooth_rand(i + 20, life, 6.0) - 0.5), 0.18 * (smooth_rand(i + 30, life, 6.0) - 0.5), 0)
     for i, eo in enumerate(S.embers):
-        life = (t * 0.9 + i / len(S.embers)) % 1.0
-        ang = i * 2.4 + t * 1.3
-        rr = 0.6 + 2.5 * life
+        lf = (life * 0.9 + i / len(S.embers)) % 1.0
+        ang = i * 2.4 + life * 1.3
+        rr = 0.6 + 2.5 * lf
         eo.hide_render = fire_k < 0.3
-        eo.location = (rr * math.cos(ang), rr * math.sin(ang), COL_Z0 + 1.0 + life * 9.0)
-        eo.scale = (1 - life,) * 3
+        eo.location = (rr * math.cos(ang), rr * math.sin(ang), COL_Z0 + 1.0 + lf * 9.0)
+        eo.scale = (1 - lf,) * 3
 
     # --- torches: top-of-work lights, podium braziers, camp fires, quay
     tk = TL.smoothstep(0.55, 0.1, day)
@@ -1925,7 +2284,7 @@ def pose(S, t):
             th = T1_THICK if zz <= T1_ROOF else T2_THICK
             x, y = top_ring_point(max(zz - 1.6, PLAT_TOP), i / 6 + 0.08, th * 0.5)
             spots.append((x, y, zz, 1.0))
-    if t > TL.PHASES['platform'][1]:
+    if tc > TL.PHASES['platform'][1]:
         a = PLAT_A[-1] - 1.0
         for sx, sy in ((1, 1), (-1, 1), (-1, -1), (1, -1)):
             spots.append((sx * a, sy * a, PLAT_TOP + 1.0, 1.3))
@@ -1936,7 +2295,7 @@ def pose(S, t):
     for i, (lo, fo) in enumerate(S.torches):
         if i < len(spots) and tk > 0.01:
             x, y, z, s = spots[i]
-            fl = 0.8 + 0.2 * smooth_rand(i + 200, t, 8.0)
+            fl = 0.8 + 0.2 * smooth_rand(i + 200, life, 8.0)
             lo.location = (x, y, z + 0.6)
             fo.location = (x, y, z)
             fo.scale = (s * fl,) * 3
@@ -1946,8 +2305,12 @@ def pose(S, t):
             lo.hide_render = fo.hide_render = True
 
     # --- camera
-    fi = min(int(round(t * TL.FPS)), TL.NFRAMES - 1)
-    loc, tgt = S.cam_track[fi]
+    if 'cam' in kw:
+        loc, tgt, lens = kw['cam']
+        S.cam.data.lens = lens
+    else:
+        fi = min(int(round(t * TL.FPS)), TL.NFRAMES - 1)
+        loc, tgt = S.cam_track[fi]
     look_at(S.cam, loc, tgt)
     return dict(t=t, hour=hour, sun_el=el_deg, day=day, height=H, fire=fire_k,
                 horizon=hor, zenith=zen)

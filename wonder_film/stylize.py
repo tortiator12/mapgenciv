@@ -55,17 +55,34 @@ def frame_key(rgb):
     return float(np.exp(np.mean(np.log(lum))))
 
 
-def exposure_curve(keys, days, fps=TL.FPS):
-    """Smoothed auto-exposure (log domain) with a darker target at night."""
+LOOKS = {
+    # exposure targets (log-average display key) for day and night
+    'ink': dict(day=0.095, night=0.04, sigma=0.35),
+    'paint': dict(day=0.16, night=0.07, sigma=0.3),
+}
+
+
+def exposure_target(day, look='ink'):
+    L = LOOKS[look]
+    return L['day'] * day + L['night'] * (1 - day)
+
+
+def exposure_curve(keys, days, fps=TL.FPS, look='ink', shots=None):
+    """Smoothed auto-exposure (log domain) with a darker target at night.
+    With `shots`, smoothing never crosses a cut."""
     keys = np.asarray(keys, float)
     days = np.asarray(days, float)
-    target = 0.095 * days + 0.04 * (1 - days)
+    target = exposure_target(days, look)
     ev = np.log(target) - np.log(np.maximum(keys, 1e-6))
-    sig = 0.35 * fps
+    sig = LOOKS[look]['sigma'] * fps
     r = int(3 * sig)
     k = np.exp(-0.5 * (np.arange(-r, r + 1) / sig) ** 2)
     k /= k.sum()
-    evs = np.convolve(np.pad(ev, r, mode='edge'), k, mode='valid')
+    shots = np.zeros(len(ev), int) if shots is None else np.asarray(shots)
+    evs = np.zeros_like(ev)
+    for s in np.unique(shots):
+        idx = np.where(shots == s)[0]
+        evs[idx] = np.convolve(np.pad(ev[idx], r, mode='edge'), k, mode='valid')
     return np.exp(evs)
 
 
@@ -302,12 +319,88 @@ def stylize(rgb, Z, ID, L, meta, exposure, frame, params=None):
     return np.clip(disp, 0, 1)
 
 
+def unsharp(img, sigma, amount):
+    return img + (img - cv2.GaussianBlur(img, (0, 0), sigma)) * amount
+
+
+def stylize_paint(rgb, Z, ID, meta, exposure, frame):
+    """Bright, warm, painterly look of the Civ1 wonder films: aerial haze,
+    filmic tone curve, soft Kuwahara paint with the detail sharpened back in,
+    bloom and beacon glow, gentle warm grade.  No inks, no halftone."""
+    H, W = Z.shape
+    s = H / 720.0
+    day = meta['day']
+    night = 1.0 - day
+
+    sky = ~np.isfinite(Z) | (Z > 1e8)
+    Zc = np.where(sky, 0, Z)
+    fog_col = np.array(meta['horizon'], np.float32) * 0.85 + np.array(meta['zenith'], np.float32) * 0.15
+    fog = (1.0 - np.exp(-np.maximum(Zc - 300.0, 0.0) / 6000.0)) * (~sky)
+    fog = np.clip(fog, 0, 0.6)[..., None].astype(np.float32)
+    lin = rgb * (1 - fog) + fog_col[None, None, :] * fog
+    lin = lin * exposure
+
+    star_k = TL.smoothstep(-7.0, -15.0, meta['sun_el']) * meta.get('stars', 1.0)
+    stars = None
+    if star_k > 0:
+        st = star_layer(H, W, meta, frame) * sky * np.clip(1.0 - meta['_clouds'] * 1.4, 0, 1)
+        stars = 1.0 - np.exp(-st * star_k * exposure * 2.2)
+
+    bright = np.minimum(np.maximum(lin - 1.0, 0.0), 30.0)
+    glow = np.zeros_like(lin)
+    for sig, k in ((3.0, 0.22), (10.0, 0.16), (30.0, 0.12)):
+        glow += cv2.GaussianBlur(bright, (0, 0), sig * s) * k
+    fire_k = meta.get('fire', 0.0)
+    if fire_k > 0.01 and 0 < meta['fire_screen'][0] < 1 and 0 < meta['fire_screen'][1] < 1 \
+            and meta['fire_screen'][2] > 0:
+        fx = meta['fire_screen'][0] * W
+        fy = (1 - meta['fire_screen'][1]) * H
+        dist = meta['fire_screen'][2]
+        size = np.clip(300.0 / max(dist, 1.0), 0.25, 3.0)
+        yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
+        r = np.hypot(xx - fx, yy - fy) / (18 * s * size)
+        halo = 0.8 / (1.0 + 2.5 * r * r) + np.exp(-r * 0.3) * 0.06 * (0.4 + night)
+        glow += (halo * fire_k)[..., None] * np.array([1.0, 0.55, 0.22], np.float32)
+        fire_mask = np.hypot(xx - fx, yy - fy) < 14 * s * size
+        rays = radial_blur(bright * fire_mask[..., None], fx, fy, n=24, step=0.02, decay=0.95)
+        glow += rays * (1.2 * fire_k * (0.3 + 0.7 * night)) * np.array([1.0, 0.62, 0.3], np.float32)
+    glow_disp = 1.0 - np.exp(-glow * 1.2)
+
+    disp = to_srgb(aces(lin * 0.9))
+    kw = kuwahara(disp, max(2, int(round(2 * s))))
+    disp = disp * 0.45 + kw * 0.55
+    disp = np.clip(unsharp(disp, 1.4 * s, 0.45), 0, 1)
+
+    lum = disp @ LUMA
+    sh = (1 - lum) ** 2
+    hi = lum ** 2
+    disp = disp + sh[..., None] * np.array([-0.006, 0.0, 0.016], np.float32) * (1 + night)
+    disp = disp + hi[..., None] * np.array([0.03, 0.014, -0.018], np.float32)
+    sat = 1.18 - 0.14 * night
+    gray = (disp @ LUMA)[..., None]
+    disp = np.clip(gray + (disp - gray) * sat, 0, 1)
+    disp = disp * disp * (3 - 2 * disp) * 0.35 + disp * 0.65
+
+    disp = 1.0 - (1.0 - disp) * (1.0 - np.clip(glow_disp, 0, 1))
+    if stars is not None:
+        disp = disp + stars[..., None] * np.array([0.9, 0.93, 1.0], np.float32)
+    yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
+    rr = np.hypot((xx - W / 2) / (W / 2), (yy - H / 2) / (H / 2)) / math.sqrt(2)
+    disp = disp * (1.0 - 0.22 * rr ** 2.4)[..., None]
+    rng = np.random.default_rng(frame * 7 + 1)
+    g = cv2.GaussianBlur(rng.normal(0, 1, (H, W)).astype(np.float32), (0, 0), 0.6 * s)
+    disp = disp + g[..., None] * 0.01
+    return np.clip(disp, 0, 1)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--inp', required=True)
     ap.add_argument('--out', required=True)
     ap.add_argument('--frames', default=None)
     ap.add_argument('--no-titles', action='store_true')
+    ap.add_argument('--look', default='ink', choices=['ink', 'paint'])
+    ap.add_argument('--fade-in', type=float, default=0.0)
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
     metas = sorted(glob.glob(os.path.join(args.inp, 'meta_*.json')))
@@ -322,15 +415,23 @@ def main():
         tmp = cache + f'.{os.getpid()}'
         json.dump(keys, open(tmp, 'w'))
         os.replace(tmp, cache)
-    days = [json.load(open(os.path.join(args.inp, f'meta_{f:04d}.json')))['day'] for f in frames]
+    metas_all = [json.load(open(os.path.join(args.inp, f'meta_{f:04d}.json'))) for f in frames]
+    days = [m['day'] for m in metas_all]
+    shots = [m.get('shot', '') for m in metas_all]
     if len(frames) > 30:
-        expo = exposure_curve([keys[str(f)] for f in frames], days)
+        expo = exposure_curve([keys[str(f)] for f in frames], days, look=args.look,
+                              shots=[sorted(set(shots)).index(s) for s in shots])
     else:   # sparse previews: no temporal smoothing
-        expo = [(0.095 * dd + 0.04 * (1 - dd)) / keys[str(f)] for f, dd in zip(frames, days)]
+        expo = [exposure_target(dd, args.look) / keys[str(f)] for f, dd in zip(frames, days)]
     todo = frames if args.frames is None else [f for f in frames if str(f) in args.frames.split(',')]
     for f in todo:
         rgb, Z, ID, L, meta = load(args.inp, f)
-        img = stylize(rgb, Z, ID, L, meta, expo[frames.index(f)], f)
+        if args.look == 'paint':
+            img = stylize_paint(rgb, Z, ID, meta, expo[frames.index(f)], f)
+        else:
+            img = stylize(rgb, Z, ID, L, meta, expo[frames.index(f)], f)
+        if args.fade_in > 0:
+            img = img * min(1.0, meta['t'] / args.fade_in)
         if not args.no_titles:
             img = titles.apply(img, f / TL.FPS)
         cv2.imwrite(os.path.join(args.out, f'frame_{f:04d}.png'),
