@@ -83,6 +83,14 @@ the picture, because the game shows the title and year itself.
 | `audio_lighthouse20.py` | Lyre alone at the quay; frame drum, plucked ostinato and chisels for the time-lapse; crickets in the night; an aulos over the statue; A7(b9) → D major with boom, gong and choir exactly when the fire catches (14.0 s); waves, creaking timber and a sailor's call at the end. Mean level −24 dB, like the other game films. |
 | `make_lighthouse20.sh` | Render → stylize → soundtrack → MP4 (H.264) and OGV (Theora/Vorbis, for Godot). |
 
+Detail pass (no extra cost): photographed CC0 textures from Poly Haven, fetched
+by `fetch_textures.py` into `assets/textures/` (weathered planks for hulls and
+decks, linen for the sail, natural limestone on every block face, sand on the
+ground, rough timber on scaffolds and cranes). Each is mapped at its real size
+and only adds detail, so the palette keeps the colours. Close shots also get a
+treadwheel-driven quay crane, planked stone lighters, and people with tunics,
+belts, hair or head cloths, and baskets.
+
 Physics notes: the statue always hangs plumb under the boom tip, and the tip
 is high enough (boom heel 6 m up the mast, so the boom clears the lantern
 scaffold). The derrick's guys are anchored on the octagon roof and on the

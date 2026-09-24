@@ -1,0 +1,149 @@
+{
+ "hull": {
+  "asset": "weathered_brown_planks",
+  "name": "Weathered Brown Planks",
+  "authors": [
+   "Dimitrios Savva",
+   "Rico Cilliers"
+  ],
+  "size_m": [
+   1.7999999523162842,
+   1.7999999523162842
+  ],
+  "license": "CC0 1.0 (Poly Haven)",
+  "url": "https://polyhaven.com/a/weathered_brown_planks",
+  "maps": {
+   "diff": "weathered_brown_planks/weathered_brown_planks_diff_1k.jpg",
+   "nor_gl": "weathered_brown_planks/weathered_brown_planks_nor_gl_1k.jpg",
+   "rough": "weathered_brown_planks/weathered_brown_planks_rough_1k.jpg",
+   "disp": "weathered_brown_planks/weathered_brown_planks_disp_1k.jpg"
+  },
+  "mean_rgb": [
+   0.12101013213396072,
+   0.0746917650103569,
+   0.04480531066656113
+  ]
+ },
+ "deck": {
+  "asset": "old_planks_02",
+  "name": "Old Planks 02",
+  "authors": [
+   "Rob Tuytel"
+  ],
+  "size_m": [
+   2.0,
+   2.0
+  ],
+  "license": "CC0 1.0 (Poly Haven)",
+  "url": "https://polyhaven.com/a/old_planks_02",
+  "maps": {
+   "diff": "old_planks_02/old_planks_02_diff_1k.jpg",
+   "nor_gl": "old_planks_02/old_planks_02_nor_gl_1k.jpg",
+   "rough": "old_planks_02/old_planks_02_rough_1k.jpg",
+   "disp": "old_planks_02/old_planks_02_disp_1k.jpg"
+  },
+  "mean_rgb": [
+   0.12292622029781342,
+   0.09159810096025467,
+   0.06396695226430893
+  ]
+ },
+ "stone": {
+  "asset": "worn_rock_natural_01",
+  "name": "Worn Rock Natural 01",
+  "authors": [
+   "Rob Tuytel",
+   "Dimitrios Savva"
+  ],
+  "size_m": [
+   2.0,
+   2.0
+  ],
+  "license": "CC0 1.0 (Poly Haven)",
+  "url": "https://polyhaven.com/a/worn_rock_natural_01",
+  "maps": {
+   "diff": "worn_rock_natural_01/worn_rock_natural_01_diff_1k.jpg",
+   "nor_gl": "worn_rock_natural_01/worn_rock_natural_01_nor_gl_1k.jpg",
+   "rough": "worn_rock_natural_01/worn_rock_natural_01_rough_1k.jpg",
+   "disp": "worn_rock_natural_01/worn_rock_natural_01_disp_1k.jpg"
+  },
+  "mean_rgb": [
+   0.39667508006095886,
+   0.2764756977558136,
+   0.1449287384748459
+  ]
+ },
+ "sand": {
+  "asset": "sand_01",
+  "name": "Sand 01",
+  "authors": [
+   "Rob Tuytel"
+  ],
+  "size_m": [
+   1.5,
+   1.5
+  ],
+  "license": "CC0 1.0 (Poly Haven)",
+  "url": "https://polyhaven.com/a/sand_01",
+  "maps": {
+   "diff": "sand_01/sand_01_diff_1k.jpg",
+   "nor_gl": "sand_01/sand_01_nor_gl_1k.jpg",
+   "rough": "sand_01/sand_01_rough_1k.jpg",
+   "disp": "sand_01/sand_01_disp_1k.jpg"
+  },
+  "mean_rgb": [
+   0.38177064061164856,
+   0.30634209513664246,
+   0.16230818629264832
+  ]
+ },
+ "linen": {
+  "asset": "rough_linen",
+  "name": "Rough Linen",
+  "authors": [
+   "colormass",
+   "Rico Cilliers"
+  ],
+  "size_m": [
+   0.2707081392676629,
+   0.27129998803138733
+  ],
+  "license": "CC0 1.0 (Poly Haven)",
+  "url": "https://polyhaven.com/a/rough_linen",
+  "maps": {
+   "diff": "rough_linen/rough_linen_diff_1k.jpg",
+   "nor_gl": "rough_linen/rough_linen_nor_gl_1k.jpg",
+   "rough": "rough_linen/rough_linen_rough_1k.jpg",
+   "disp": "rough_linen/rough_linen_disp_1k.jpg"
+  },
+  "mean_rgb": [
+   0.28707173466682434,
+   0.4099191129207611,
+   0.6156736612319946
+  ]
+ },
+ "timber": {
+  "asset": "rough_wood",
+  "name": "Rough Wood",
+  "authors": [
+   "Rob Tuytel"
+  ],
+  "size_m": [
+   0.5,
+   0.5
+  ],
+  "license": "CC0 1.0 (Poly Haven)",
+  "url": "https://polyhaven.com/a/rough_wood",
+  "maps": {
+   "diff": "rough_wood/rough_wood_diff_1k.jpg",
+   "nor_gl": "rough_wood/rough_wood_nor_gl_1k.jpg",
+   "rough": "rough_wood/rough_wood_rough_1k.jpg",
+   "disp": "rough_wood/rough_wood_disp_1k.jpg"
+  },
+  "mean_rgb": [
+   0.15296772122383118,
+   0.12842011451721191,
+   0.10093436390161514
+  ]
+ }
+}

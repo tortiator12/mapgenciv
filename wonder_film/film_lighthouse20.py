@@ -438,7 +438,7 @@ def ship_stations(ns=40):
     return s, x, b, keel, sheer
 
 
-def mat_planking(name, base, band, pitch, strake=0.32, butt=4.6):
+def mat_planking(name, base, band, pitch, strake=0.32, butt=4.6, role='hull'):
     """Hull planking with continuous UVs: strakes along u, staggered butts,
     a painted band below the sheer and black pitch under the waterline."""
     m, nb, out = SC.new_material(name)
@@ -452,13 +452,20 @@ def mat_planking(name, base, band, pitch, strake=0.32, butt=4.6):
     nb.feed(wn.inputs['Vector'], nb.comb(k, nb.math('FLOOR', nb.math('DIVIDE', nb.math('ADD', u, nb.math('MULTIPLY', k, 1.7)), butt)), 0.0))
     tone = nb.math('ADD', 0.85, nb.math('MULTIPLY', wn.outputs['Value'], 0.3))
     col = nb.mix(1.0, base + (1,), nb.comb(tone, tone, tone), blend='MULTIPLY')
+    tex = None
+    if SC.use_textures():     # photographed weathered planks, at their real size
+        tex = SC.tex_sample(nb, role, nb.comb(u, v, 0.0), detail=0.9, normal_uv='UVMap', normal_strength=0.8)
+        col = SC.mul_col(nb, col, tex[0])
     oz = nb.sep(nb.new('ShaderNodeTexCoord').outputs['Object'])[2]
     top = nb.attr('sheer_d').outputs['Fac']            # distance below the sheer (m)
     bandm = nb.math('MULTIPLY', nb.smooth(0.25, 0.35, top), nb.smooth(0.95, 0.85, top))
     col = nb.mix(bandm, col, band + (1,))
     col = nb.mix(nb.smooth(0.35, 0.15, oz), col, pitch + (1,))
-    col = nb.mix(nb.math('MULTIPLY', seam, 0.7), col, (0.02, 0.015, 0.01, 1))
+    col = nb.mix(nb.math('MULTIPLY', seam, 0.7 if tex is None else 0.35), col, (0.02, 0.015, 0.01, 1))
     b = SC.principled(nb, col, rough=0.75, spec=0.35)
+    if tex is not None:
+        nb.feed(b.inputs['Normal'], tex[1])
+        nb.feed(b.inputs['Roughness'], nb.math('ADD', 0.3, nb.math('MULTIPLY', tex[2], 0.65)))
     nb.feed(out.inputs['Surface'], b.outputs[0])
     return m
 
@@ -473,8 +480,14 @@ def mat_sailcloth(name, base):
     n = nb.noise(nb.comb(u, v, 0.0), 0.8, 3.0, 0.6).outputs['Fac']
     k = nb.math('ADD', 0.88, nb.math('MULTIPLY', n, 0.2))
     col = nb.mix(1.0, base + (1,), nb.comb(k, k, k), blend='MULTIPLY')
+    tex = None
+    if SC.use_textures():     # linen weave (grey detail only)
+        tex = SC.tex_sample(nb, 'linen', nb.comb(u, v, 0.0), detail=0.6, gray=True, normal_uv='UVMap', normal_strength=0.5)
+        col = SC.mul_col(nb, col, tex[0])
     col = nb.mix(nb.math('MULTIPLY', grid, 0.55), col, (0.36, 0.26, 0.16, 1))
     b = SC.principled(nb, col, rough=0.9, spec=0.2)
+    if tex is not None:
+        nb.feed(b.inputs['Normal'], tex[1])
     tr = nb.new('ShaderNodeBsdfTranslucent')
     nb.feed(tr.inputs['Color'], col)
     mix = nb.new('ShaderNodeMixShader')
@@ -493,7 +506,7 @@ def build_ship(S):
     m_hull = mat_planking('ShipHull', pal['hull'] if LOOK != 'bright' else (0.34, 0.22, 0.13),
                           (0.42, 0.10, 0.06), (0.03, 0.025, 0.02))
     m_deck = mat_planking('ShipDeck', (0.52, 0.40, 0.27), (0.52, 0.40, 0.27), (0.52, 0.40, 0.27),
-                          strake=0.24, butt=5.3)
+                          strake=0.24, butt=5.3, role='deck')
     m_wood = S.m_wood
     m_paint = SC.mat_simple('ShipPaint', (0.40, 0.09, 0.05), 0.7)
     m_rope = S.m_rope
@@ -646,7 +659,7 @@ def build_lighter(S):
     bulwarks, a rubbing wale, a steering oar; replaces the plain barge hulls."""
     m_hull = mat_planking('LighterHull', (0.36, 0.25, 0.15), (0.30, 0.20, 0.12), (0.03, 0.025, 0.02))
     m_deck = mat_planking('LighterDeck', (0.50, 0.39, 0.26), (0.50, 0.39, 0.26), (0.50, 0.39, 0.26),
-                          strake=0.26, butt=4.2)
+                          strake=0.26, butt=4.2, role='deck')
     L, Bm, ns, nk = 16.0, 6.4, 30, 8
     ss = np.linspace(0, 1, ns)
     x = (ss - 0.5) * L

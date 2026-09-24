@@ -4,6 +4,7 @@ build() creates everything once; pose(state, t) sets the scene to video time t
 (which blocks exist, scaffolding, cranes, workers, ships, sun/moon/sky,
 torches, the beacon and the camera).  Pure procedural geometry, no assets.
 """
+import json
 import math
 import os
 import sys
@@ -82,7 +83,7 @@ PALETTES = {
         wood=(0.50, 0.36, 0.22), plank=(0.60, 0.47, 0.31), rope=(0.34, 0.27, 0.17),
         cloth=(0.80, 0.74, 0.62), cloth2=(0.62, 0.30, 0.16), hull=(0.26, 0.17, 0.10), sail=(0.86, 0.79, 0.65),
         rock=((0.20, 0.16, 0.12), (0.40, 0.33, 0.24)), sand=((0.42, 0.30, 0.17), (0.58, 0.43, 0.26)),
-        dust=((0.44, 0.35, 0.23), (0.56, 0.45, 0.30)), scrub_ground=(0.30, 0.29, 0.13), scrub_k=0.45, cumulus=True, stone_detail=True,
+        dust=((0.44, 0.35, 0.23), (0.56, 0.45, 0.30)), scrub_ground=(0.30, 0.29, 0.13), scrub_k=0.45, cumulus=True, stone_detail=True, textures=True,
         wet=(0.10, 0.09, 0.08),
         boulder=((0.18, 0.15, 0.12), (0.42, 0.36, 0.28)), boulder_wet=(0.08, 0.07, 0.06),
         water=((0.004, 0.040, 0.070), (0.025, 0.19, 0.18)), foam=(0.80, 0.83, 0.82),
@@ -92,6 +93,66 @@ PALETTES = {
                  (0.42, 0.29, 0.18), (0.84, 0.80, 0.70), (0.50, 0.18, 0.12), (0.58, 0.52, 0.36)]),
 }
 P = PALETTES['dark']
+
+
+# ============================================================ photo textures (CC0)
+TEX_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'assets', 'textures')
+_TEX = None
+
+
+def tex_manifest():
+    """Textures fetched by fetch_textures.py (Poly Haven, CC0); {} if absent."""
+    global _TEX
+    if _TEX is None:
+        path = os.path.join(TEX_DIR, 'manifest.json')
+        _TEX = json.load(open(path)) if os.path.exists(path) else {}
+    return _TEX
+
+
+def use_textures():
+    return bool(P.get('textures')) and bool(tex_manifest())
+
+
+def tex_sample(nb, role, vec_m, detail=0.8, gray=False, normal_uv=None, normal_strength=0.8):
+    """Sample photo texture `role` at its real-world size (vec_m in metres).
+    Returns (colour multiplier, tangent normal or None, roughness, height):
+    the multiplier is the texture divided by its mean colour, so the palette
+    keeps the hue and the photo only adds detail."""
+    e = tex_manifest()[role]
+    sx, sy = e['size_m']
+    v = nb.vmath('MULTIPLY', vec_m, (1.0 / sx, 1.0 / sy, 1.0))
+
+    def img(key, noncolor):
+        n = nb.new('ShaderNodeTexImage', interpolation='Linear', extension='REPEAT')
+        im = bpy.data.images.load(os.path.join(TEX_DIR, e['maps'][key]), check_existing=True)
+        if noncolor:
+            im.colorspace_settings.name = 'Non-Color'
+        n.image = im
+        nb.feed(n.inputs['Vector'], v)
+        return n.outputs['Color']
+    diff = img('diff', False)
+    mr, mg, mb = e['mean_rgb']
+    if gray:
+        bw = nb.new('ShaderNodeRGBToBW')
+        nb.feed(bw.inputs[0], diff)
+        k = nb.math('DIVIDE', bw.outputs[0], 0.2126 * mr + 0.7152 * mg + 0.0722 * mb)
+        ratio = nb.comb(k, k, k)
+    else:
+        ratio = nb.vmath('DIVIDE', diff, (mr, mg, mb))
+    mult = nb.mix(detail, (1.0, 1.0, 1.0, 1.0), ratio)
+    rough = nb.sep(img('rough', True))[0]
+    height = nb.sep(img('disp', True))[0]
+    nrm = None
+    if normal_uv is not None:
+        nm = nb.new('ShaderNodeNormalMap', space='TANGENT', uv_map=normal_uv)
+        nb.feed(nm.inputs['Color'], img('nor_gl', True))
+        nm.inputs['Strength'].default_value = normal_strength
+        nrm = nm.outputs['Normal']
+    return mult, nrm, rough, height
+
+
+def mul_col(nb, col, mult):
+    return nb.mix(1.0, col, mult, blend='MULTIPLY')
 
 
 # ============================================================ bpy helpers
@@ -311,13 +372,24 @@ def mat_masonry(name, base, joint_col, var=0.09, width=0.05, grime=None):
     kc = nb.comb(k, k, k)
     nb.feed(ins['B_Color'], kc)
     colout = {s.identifier: s for s in col.outputs}['Result_Color']
+    tex = None
+    if use_textures():
+        uvs = nb.sep(nb.new('ShaderNodeUVMap', uv_map='UVMap').outputs[0])
+        vec = nb.comb(nb.math('ADD', uvs[0], nb.math('MULTIPLY', tone, 5.17)),
+                      nb.math('ADD', uvs[1], nb.math('MULTIPLY', tone, 3.31)), 0.0)
+        tex = tex_sample(nb, 'stone', vec, detail=0.85, normal_uv='UVMap', normal_strength=0.9)
+        colout = mul_col(nb, colout, tex[0])
     colj = nb.mix(j, colout, tuple(joint_col) + (1,))
     b = principled(nb, colj, rough=0.88, spec=0.35)
+    if tex is not None:
+        nb.feed(b.inputs['Roughness'], nb.math('ADD', 0.35, nb.math('MULTIPLY', tex[2], 0.6)))
     bump = nb.new('ShaderNodeBump', invert=True)
     bump.inputs['Strength'].default_value = 0.35
     bump.inputs['Distance'].default_value = 0.05
     height = nb.math('ADD', j, nb.math('MULTIPLY', n2, 0.3))
-    if P.get('stone_detail'):
+    if tex is not None:
+        nb.feed(bump.inputs['Normal'], tex[1])            # photo relief under the mortar joints
+    elif P.get('stone_detail'):
         # dressed stone for close shots: claw-chisel tooling across each face,
         # small pits, and softly worn arrises next to the joints
         uv = nb.new('ShaderNodeUVMap', uv_map='UVMap').outputs[0]
@@ -338,7 +410,7 @@ def mat_masonry(name, base, joint_col, var=0.09, width=0.05, grime=None):
     return m
 
 
-def mat_wood(name, base, var=0.3, width=0.03):
+def mat_wood(name, base, var=0.3, width=0.03, textured=True):
     m, nb, out = new_material(name)
     tone = nb.attr('tone').outputs['Fac']
     j = joint_mask(nb, width)
@@ -350,8 +422,20 @@ def mat_wood(name, base, var=0.3, width=0.03):
     nb.feed(ins['A_Color'], tuple(base) + (1,))
     nb.feed(ins['B_Color'], kc)
     colout = {s.identifier: s for s in col.outputs}['Result_Color']
+    tex = None
+    if textured and use_textures():
+        uvs = nb.sep(nb.new('ShaderNodeUVMap', uv_map='UVMap').outputs[0])
+        fs = nb.sep(nb.attr('fsize').outputs['Vector'])
+        along_u = nb.math('GREATER_THAN', fs[0], fs[1])       # grain runs along the longer side
+        a = nb.comb(uvs[0], nb.math('ADD', uvs[1], nb.math('MULTIPLY', tone, 7.0)), 0.0)
+        bvec = nb.comb(uvs[1], nb.math('ADD', uvs[0], nb.math('MULTIPLY', tone, 7.0)), 0.0)
+        vec = nb.mix(along_u, a, bvec, dtype='VECTOR')
+        tex = tex_sample(nb, 'timber', vec, detail=0.75, gray=True, normal_uv='UVMap', normal_strength=0.7)
+        colout = mul_col(nb, colout, tex[0])
     colj = nb.mix(nb.math('MULTIPLY', j, 0.6), colout, (0.03, 0.02, 0.012, 1))
     b = principled(nb, colj, rough=0.85, spec=0.3)
+    if tex is not None:
+        nb.feed(b.inputs['Normal'], tex[1])
     nb.feed(out.inputs['Surface'], b.outputs[0])
     return m
 
@@ -590,10 +674,18 @@ def mat_terrain():
     # wet, dark rock at the waterline
     wet = nb.smooth(1.6, 0.2, z)
     col = nb.mix(nb.math('MULTIPLY', wet, 0.75), col, P['wet'] + (1,))
+    relief = nb.noise(pos, 1.6, 3.0, 0.6).outputs['Fac']
+    if use_textures():
+        t1 = tex_sample(nb, 'sand', pos, detail=0.7)
+        pos2 = nb.vmath('ADD', nb.comb(nb.math('MULTIPLY', y_, 0.37), nb.math('MULTIPLY', x_, -0.37), 0.0), (13.1, 7.7, 0.0))
+        t2 = tex_sample(nb, 'sand', pos2, detail=0.5)
+        sandy = nb.math('MULTIPLY', flat, nb.math('SUBTRACT', 1.0, wet))
+        col = mul_col(nb, col, nb.mix(sandy, (1.0, 1.0, 1.0, 1.0), nb.mix(0.5, t1[0], t2[0])))
+        relief = nb.math('ADD', nb.math('MULTIPLY', relief, 0.4), nb.math('MULTIPLY', t1[3], 0.9))
     b = principled(nb, col, rough=nb.math('SUBTRACT', 0.95, nb.math('MULTIPLY', wet, 0.5)), spec=0.3)
     bump = nb.new('ShaderNodeBump')
     bump.inputs['Strength'].default_value = 0.6
-    nb.feed(bump.inputs['Height'], nb.noise(pos, 1.6, 3.0, 0.6).outputs['Fac'])
+    nb.feed(bump.inputs['Height'], relief)
     nb.feed(b.inputs['Normal'], bump.outputs['Normal'])
     nb.feed(out.inputs['Surface'], b.outputs[0])
     return m
@@ -965,6 +1057,24 @@ def build_masonry(sched):
 
 
 # ============================================================ lantern pieces
+def quad_uvs(V, Q, tone=0.5):
+    """Per-face UVs in metres (u along the first edge) plus the face size, as
+    HexBatch gives the blocks: needed by the mortar joints and photo textures."""
+    V = np.asarray(V, float)
+    Q = np.asarray(Q)
+    A, B, D = V[Q[:, 0]], V[Q[:, 1]], V[Q[:, 3]]
+    w = np.linalg.norm(B - A, axis=1)
+    h = np.linalg.norm(D - A, axis=1)
+    uv = np.zeros((len(Q), 4, 2), np.float32)
+    uv[:, 1, 0] = w
+    uv[:, 2, 0] = w
+    uv[:, 2, 1] = h
+    uv[:, 3, 1] = h
+    fs = np.zeros((len(Q), 3), np.float32)
+    fs[:, 0], fs[:, 1] = w, h
+    return uv.reshape(-1, 2), {'fsize': ('FLOAT_VECTOR', fs), 'tone': ('FLOAT', np.full(len(Q), tone, np.float32))}
+
+
 def prism(name, radius, z0, z1, n=12, r_top=None, center=(0, 0), mats=None):
     r_top = radius if r_top is None else r_top
     ang = np.linspace(0, 2 * np.pi, n, endpoint=False)
@@ -979,7 +1089,8 @@ def prism(name, radius, z0, z1, n=12, r_top=None, center=(0, 0), mats=None):
     tris_b = [[2 * n, j, i, i] for i, j in ((i, (i + 1) % n) for i in range(n))]
     tris_t = [[2 * n + 1, n + i, n + (i + 1) % n, n + (i + 1) % n] for i in range(n)]
     Q = np.array(faces + tris_b + tris_t)
-    return mesh_from_arrays(name, V, Q, mats=mats, smooth=False)
+    uv, attrs = quad_uvs(V, Q, tone=float(G._hash2(np.int64(len(name)), np.int64(n), 4)))
+    return mesh_from_arrays(name, V, Q, uv=uv, face_attrs=attrs, mats=mats, smooth=False)
 
 
 def build_lantern(coll, mat_stone, mat_bronze):
@@ -1015,7 +1126,8 @@ def build_lantern(coll, mat_stone, mat_bronze):
             Q.append([idx(0, 0, k + 1), idx(0, 0, k), idx(0, 1, k), idx(0, 1, k + 1)])  # bottom
         Q.append([idx(0, 0, 0), idx(1, 0, 0), idx(1, 1, 0), idx(0, 1, 0)])
         Q.append([idx(0, 0, 3), idx(0, 1, 3), idx(1, 1, 3), idx(1, 0, 3)])
-        me = mesh_from_arrays(f'Entab{i}', np.array(V), np.array(Q), mats=[mat_stone])
+        uv, attrs = quad_uvs(V, Q, tone=0.3 + 0.05 * i)
+        me = mesh_from_arrays(f'Entab{i}', np.array(V), np.array(Q), uv=uv, face_attrs=attrs, mats=[mat_stone])
         o = link(bpy.data.objects.new(f'Entab{i}', me), coll)
         o.pass_index = PASS['masonry']
         parts.append((o, TL.phase_time('tier3', 0.50 + 0.02 * i)))
@@ -1725,7 +1837,7 @@ def build(res=(1280, 720), look='dark', derrick=False):
     S.m_bronze = mat_simple('Bronze', (0.62, 0.42, 0.20), 0.32, 1.0)
     S.m_cloth = mat_simple('Canvas', P['cloth'], 0.9)
     S.m_cloth2 = mat_simple('CanvasDark', P['cloth2'], 0.9)
-    S.m_hull = mat_wood('Hull', P['hull'])
+    S.m_hull = mat_wood('Hull', P['hull'], textured=False)
     S.m_sail = mat_simple('Sail', P['sail'], 0.9)
     S.m_worker = mat_objcolor('Worker')
     S.m_fire = mat_fire()
