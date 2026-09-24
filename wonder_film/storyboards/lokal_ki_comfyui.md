@@ -4,6 +4,17 @@ Für: Laptop mit RTX 4090 (16 GB Grafikspeicher). Stand: 24.09.2026.
 Modellnamen und Vorlagen ändern sich schnell. Wenn etwas anders heißt, nimm
 das Nächstliegende und sag mir Bescheid.
 
+## Konkret für deinen Laptop (16 GB Grafikspeicher, ≥ 32 GB Arbeitsspeicher)
+
+Stand der Recherche vom 24.09.2026 (siehe Quellen unten):
+
+- **Modell:** LTX-2.3 (22B) als **GGUF Q4_K_M**, z. B. `unsloth/LTX-2.3-GGUF` auf Hugging Face. Q4_K_M gilt als bester Kompromiss für 8–16 GB Grafikspeicher. Text-Encoder und VAE nimmst du so, wie die Vorlage sie verlangt, beim Text-Encoder die quantisierte Fassung.
+- **IC-LoRA:**
+  - **„Union Control“** kann Tiefe, Kanten und Pose in einem Modell. Dort gibst du unser Tiefenvideo ein.
+  - **„Detailer“** schärft nur nach, Stärke 0,5–0,8.
+- **Vorlage:** ComfyUI → Vorlagen (Template Library) → nach „LTX-2.3“ suchen → die **IC-LoRA-Vorlage zum Bearbeiten vorhandener Videos**. Eine fertige Community-Vorlage für genau diesen Fall ist „LTX-2.3 IC LoRA (Union Control)“ auf comfy.org/workflows.
+- **Tempo:** Berichtet werden etwa 10–15 min für 10 s bei 1280×896 mit 16 GB. Für S1 (3 s, 960×544) rechne ich mit wenigen Minuten. Das ist nicht selbst gemessen.
+
 ## Was im Paket ist (pro Einstellung S1–S5)
 
 | Datei | Wofür |
@@ -68,3 +79,13 @@ baue die besten Varianten in den Film ein.
 
 - Auch mit fester Tiefe können kleine Figuren „verwaschen“ oder Details flackern. Deshalb prüfe ich jede Variante und nehme sonst unseren Render.
 - Die Rechenzeit auf einer Laptop-4090 schätze ich auf Minuten bis etwa eine halbe Stunde pro Clip, je nach Modell und Schritten. Das ist nicht gemessen.
+
+## Quellen
+
+- LTX-2.3 in ComfyUI (Anleitung, VRAM): https://www.thundercompute.com/blog/ltx-2-3-comfyui
+- LTX-2.3 GGUF: https://huggingface.co/unsloth/LTX-2.3-GGUF
+- Modelle nach Grafikspeicher: https://ltxworkflow.com/models
+- Tipps für 12–16 GB: https://ltxworkflow.com/resources/community/vram-optimization-tips-12gb-16gb-gpus
+- Union-Control-IC-LoRA: https://comfy.org/p/supported-models/ltx-2-3-22b-ic-lora-union-control-ref0-5/
+- Detailer-IC-LoRA: https://huggingface.co/Lightricks/LTX-2-19b-IC-LoRA-Detailer
+- Wan VACE mit GGUF: https://www.kombitz.com/2025/06/23/how-to-use-wan-2-1-vace-in-comfyui-for-video-to-video-ai-with-gguf-models/
