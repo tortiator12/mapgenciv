@@ -5,7 +5,9 @@ Alexandria rising course by course on its headland, in a dark, comic-realistic
 look. Everything is generated from code. There are no models, textures or
 samples, only two SIL-OFL fonts for the titles.
 
-**Output:** `great_lighthouse_timelapse.mp4`: 1280×720, 24 fps, H.264 + AAC stereo, 30 s.
+**Output:** [`great_lighthouse_timelapse.mp4`](great_lighthouse_timelapse.mp4): 1280×720, 24 fps, H.264 + AAC stereo, 30 s (22 MB).
+
+![The Great Lighthouse, finale](poster.jpg)
 
 ## What happens
 
@@ -52,8 +54,10 @@ venv/bin/python wonder_film/render.py --out /tmp/prev --frames 120,360,650 --res
 venv/bin/python wonder_film/stylize.py --inp /tmp/prev --out /tmp/prev_png
 ```
 
-On a 4-core CPU (no GPU), a frame takes about 10–15 s, so the whole film takes a
-couple of hours.
+The film in this folder was rendered on a 4-core CPU with no GPU: 6 samples per
+pixel plus OIDN, about 10 s per frame with two render processes, so roughly 2 h
+for all 720 frames. Stylizing takes about 3 min with 4 processes, and the
+encode about 1 min (`-crf 22 -tune film`).
 
 ## Historical basis
 

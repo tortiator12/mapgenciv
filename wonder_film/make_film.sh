@@ -12,6 +12,6 @@ OUT="${OUT:-$HERE/great_lighthouse_timelapse.mp4}"
 "$PY" "$HERE/stylize.py" --inp "$BUILD/render" --out "$BUILD/frames"
 "$PY" "$HERE/audio.py" --out "$BUILD/soundtrack.wav"
 ffmpeg -y -loglevel error -framerate 24 -i "$BUILD/frames/frame_%04d.png" -i "$BUILD/soundtrack.wav" \
-  -c:v libx264 -preset slow -crf 17 -tune film -pix_fmt yuv420p \
-  -c:a aac -b:a 192k -movflags +faststart -shortest "$OUT"
+  -c:v libx264 -preset slow -crf 22 -tune film -pix_fmt yuv420p -profile:v high -level 4.0 \
+  -c:a aac -b:a 160k -movflags +faststart -shortest "$OUT"
 echo "wrote $OUT"

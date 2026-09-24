@@ -238,9 +238,10 @@ def stylize(rgb, Z, ID, L, meta, exposure, frame, params=None):
         # big soft halo around the beacon
         yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
         r = np.hypot(xx - fx, yy - fy) / (22 * s)
-        halo = 0.55 / (1.0 + 2.2 * r * r) + np.exp(-r * 0.35) * 0.05
+        halo = 0.9 / (1.0 + 2.2 * r * r) + np.exp(-r * 0.35) * 0.08
         glow += (halo * fire_k)[..., None] * np.array([1.0, 0.55, 0.22], np.float32)
-    lin = lin + glow
+    # glow is composited after the paint passes so it stays smooth
+    glow_disp = 1.0 - np.exp(-glow * 1.35)
 
     # --- tone map to display
     disp = to_srgb(aces(lin))
@@ -283,6 +284,8 @@ def stylize(rgb, Z, ID, L, meta, exposure, frame, params=None):
     disp = np.clip(disp, 0, 1)
     disp = disp * disp * (3 - 2 * disp) * 0.5 + disp * 0.5     # S-curve
 
+    # --- light: glow, halo and god rays (screen blend over the inked image)
+    disp = 1.0 - (1.0 - disp) * (1.0 - np.clip(glow_disp, 0, 1))
     # --- stars go on after the painterly passes (Kuwahara would erase them)
     if stars is not None:
         disp = disp + stars[..., None] * np.array([0.9, 0.93, 1.0], np.float32)
@@ -312,11 +315,13 @@ def main():
     # pass 1: exposure keys (cached)
     cache = os.path.join(args.inp, 'keys.json')
     keys = json.load(open(cache)) if os.path.exists(cache) else {}
-    for f in frames:
-        if str(f) not in keys:
-            rgb = load(args.inp, f)[0]
-            keys[str(f)] = frame_key(rgb)
-    json.dump(keys, open(cache, 'w'))
+    missing = [f for f in frames if str(f) not in keys]
+    for f in missing:
+        keys[str(f)] = frame_key(load(args.inp, f)[0])
+    if missing:   # only write when something changed (parallel runs share the cache)
+        tmp = cache + f'.{os.getpid()}'
+        json.dump(keys, open(tmp, 'w'))
+        os.replace(tmp, cache)
     days = [json.load(open(os.path.join(args.inp, f'meta_{f:04d}.json')))['day'] for f in frames]
     if len(frames) > 30:
         expo = exposure_curve([keys[str(f)] for f in frames], days)

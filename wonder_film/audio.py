@@ -136,7 +136,7 @@ def pluck(m, dur=0.9, bright=0.55, damp=0.994):
 def drum_dum(gain=1.0):
     n = int(0.5 * SR)
     t = np.arange(n) / SR
-    f = 62 + 55 * np.exp(-t * 30)
+    f = 55.0 + 50 * np.exp(-t * 30)          # settles on A1 (the dominant)
     ph = 2 * np.pi * np.cumsum(f) / SR
     body = np.sin(ph) * np.exp(-t * 7.5)
     thump = lowpass(RNG.normal(0, 1, n), 900) * np.exp(-t * 60) * 0.35
@@ -207,9 +207,9 @@ def noise_riser(dur, f_lo=300, f_hi=6000):
 CHORDS = {
     'Dm': [38, 45, 50, 53, 57], 'Eb': [39, 46, 51, 55, 58], 'Cm': [36, 43, 48, 51, 55],
     'Bb': [34, 41, 46, 50, 53], 'A7b9': [33, 45, 49, 55, 58], 'D': [38, 45, 50, 54, 57, 62],
-    'Gm': [31, 43, 50, 55, 58],
+    'Dadd9': [38, 45, 50, 52, 54, 57, 62],
 }
-PROG = ['Dm', 'Dm', 'Dm', 'Eb', 'Dm', 'Cm', 'Bb', 'Eb', 'Cm', 'A7b9', 'D', 'Gm']
+PROG = ['Dm', 'Dm', 'Dm', 'Eb', 'Dm', 'Cm', 'Bb', 'Eb', 'Cm', 'A7b9', 'D', 'Dadd9']
 OSTINATO = [50, 51, 53, 55, 57, 55, 53, 51]          # D Phrygian
 OSTINATO_A = [45, 46, 49, 52, 55, 52, 49, 46]        # A Phrygian dominant
 MAQSUM = [('D', 0), ('T', 1), ('T', 3), ('D', 4), ('T', 6)]
@@ -218,7 +218,7 @@ MAQSUM = [('D', 0), ('T', 1), ('T', 3), ('D', 4), ('T', 6)]
 def music():
     mus = np.zeros((N, 2))
     # opening boom and drone
-    place(mus, boom(4.0, 44, 0.9), T0 - 0.05, 0.0)
+    place(mus, boom(4.0, 36.7, 0.9), T0 - 0.05, 0.0)
     drone = np.zeros(N)
     t = np.arange(N) / SR
     for m, g in ((26, 0.5), (38, 0.35), (45, 0.18)):
@@ -262,7 +262,7 @@ def music():
         if b >= 5:   # extra teks and a low boom on the downbeat
             for pos in (2, 5, 7):
                 place(mus, drum_tek(0.35), tb + pos * eighth, pan=-0.3)
-            place(mus, boom(1.2, 50, 0.35), tb)
+            place(mus, boom(1.2, 55.0, 0.35), tb)
         if b >= 7:
             for pos in range(16):
                 if RNG.random() < 0.35:
@@ -273,7 +273,7 @@ def music():
     riser = noise_riser(BAR, 250, 7000)
     place(mus, np.stack([riser, np.roll(riser, 700)], 1) * 0.12, tb9)
     t_fire = bar_t(10)
-    place(mus, boom(4.5, 41, 0.75), t_fire)
+    place(mus, boom(4.5, 36.7, 0.75), t_fire)
     place(mus, gong(6.5, 92, 0.9), t_fire - 0.02, 0.1)
     for i, m in enumerate([62, 66, 69, 74]):
         place(mus, choir_note(m, DUR - t_fire, a=0.6, r=2.0), t_fire, pan=(i - 1.5) * 0.3, gain=0.16)
