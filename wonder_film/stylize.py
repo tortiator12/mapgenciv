@@ -59,6 +59,7 @@ LOOKS = {
     # exposure targets (log-average display key) for day and night
     'ink': dict(day=0.095, night=0.04, sigma=0.35),
     'paint': dict(day=0.16, night=0.07, sigma=0.3),
+    'clean': dict(day=0.16, night=0.07, sigma=0.3),   # paint grade without the paint filter
 }
 
 
@@ -323,7 +324,7 @@ def unsharp(img, sigma, amount):
     return img + (img - cv2.GaussianBlur(img, (0, 0), sigma)) * amount
 
 
-def stylize_paint(rgb, Z, ID, meta, exposure, frame):
+def stylize_paint(rgb, Z, ID, meta, exposure, frame, paint=True):
     """Bright, warm, painterly look of the Civ1 wonder films: aerial haze,
     filmic tone curve, soft Kuwahara paint with the detail sharpened back in,
     bloom and beacon glow, gentle warm grade.  No inks, no halftone."""
@@ -367,9 +368,10 @@ def stylize_paint(rgb, Z, ID, meta, exposure, frame):
     glow_disp = 1.0 - np.exp(-glow * 1.2)
 
     disp = to_srgb(aces(lin * 0.9))
-    kw = kuwahara(disp, max(2, int(round(2 * s))))
-    disp = disp * 0.45 + kw * 0.55
-    disp = np.clip(unsharp(disp, 1.4 * s, 0.45), 0, 1)
+    if paint:
+        kw = kuwahara(disp, max(2, int(round(2 * s))))
+        disp = disp * 0.45 + kw * 0.55
+        disp = np.clip(unsharp(disp, 1.4 * s, 0.45), 0, 1)
 
     lum = disp @ LUMA
     sh = (1 - lum) ** 2
@@ -399,7 +401,7 @@ def main():
     ap.add_argument('--out', required=True)
     ap.add_argument('--frames', default=None)
     ap.add_argument('--no-titles', action='store_true')
-    ap.add_argument('--look', default='ink', choices=['ink', 'paint'])
+    ap.add_argument('--look', default='ink', choices=['ink', 'paint', 'clean'])
     ap.add_argument('--fade-in', type=float, default=0.0)
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
@@ -426,8 +428,8 @@ def main():
     todo = frames if args.frames is None else [f for f in frames if str(f) in args.frames.split(',')]
     for f in todo:
         rgb, Z, ID, L, meta = load(args.inp, f)
-        if args.look == 'paint':
-            img = stylize_paint(rgb, Z, ID, meta, expo[frames.index(f)], f)
+        if args.look in ('paint', 'clean'):
+            img = stylize_paint(rgb, Z, ID, meta, expo[frames.index(f)], f, paint=args.look == 'paint')
         else:
             img = stylize(rgb, Z, ID, L, meta, expo[frames.index(f)], f)
         if args.fade_in > 0:

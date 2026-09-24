@@ -39,7 +39,8 @@ def shot_at(v):
 # ------------------------------------------------------------------ S2 clocks
 # One day of work, a short night by torchlight, the next morning.  Construction
 # progress follows this film's daylight (fast by day, a crawl at night).
-S2_HOUR = [(3.0, 8.6), (5.9, 17.2), (6.5, 18.6), (7.2, 29.4), (7.8, 30.8), (11.0, 39.6)]
+S2_HOUR = [(3.0, 8.6), (5.9, 17.2), (6.35, 18.2), (6.75, 19.0), (7.05, 29.0), (7.45, 29.8), (7.9, 30.9),
+           (11.0, 39.6)]
 S2_TC = (1.0, 22.3)
 
 
