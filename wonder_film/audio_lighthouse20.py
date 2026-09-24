@@ -68,7 +68,7 @@ def music():
 
     # S1: a lyre alone (D Dorian), unhurried
     for k, (m, dt) in enumerate(((62, 0.15), (65, 0.55), (67, 0.95), (69, 1.35), (67, 1.95), (65, 2.3), (64, 2.6), (62, 2.95))):
-        place(mus, lyre(m, 1.6, 0.34), dt, pan=-0.15 + 0.05 * k)
+        place(mus, lyre(m, 1.6, 0.55), dt, pan=-0.15 + 0.05 * k)
 
     # S2..S3: the groove (pickup fill, then four bars into the ignition)
     for k in (3, 2, 1):
@@ -153,7 +153,7 @@ def voice_call(dur=1.1, m=55):
 def sfx():
     out = np.zeros((N, 2))
     t = np.arange(N) / SR
-    near = np.where(t < 3.0, 1.0, np.where(t < 16.0, 0.55, 1.25))
+    near = np.where(t < 3.0, 1.7, np.where(t < 16.0, 0.55, 1.25))
     for ch in (0, 1):
         w = np.cumsum(RNG.normal(0, 1, N))
         w = lowpass(highpass(w, 80), 700)
@@ -167,7 +167,7 @@ def sfx():
 
     # S1: gulls, the crane, the ox cart
     for tt, pan in ((0.3, -0.5), (1.1, 0.4), (1.5, 0.55), (2.4, -0.2), (3.6, 0.3)):
-        place(out, gull(RNG.uniform(0.35, 0.6)), tt, pan=pan, gain=0.05)
+        place(out, gull(RNG.uniform(0.35, 0.6)), tt, pan=pan, gain=0.08)
     place(out, creak(1.4, 95.0), 0.6, pan=0.1, gain=0.05)
     place(out, creak(0.9, 130.0), 2.0, pan=0.15, gain=0.04)
     for k in range(9):          # hooves and a wooden wheel
