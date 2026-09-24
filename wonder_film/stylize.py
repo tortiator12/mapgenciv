@@ -320,6 +320,10 @@ def stylize(rgb, Z, ID, L, meta, exposure, frame, params=None):
     return np.clip(disp, 0, 1)
 
 
+PAINT_K = 0.35        # share of the Kuwahara paint in the 'paint' look (was 0.55: it ate detail)
+PAINT_SHARP = 0.6
+
+
 def unsharp(img, sigma, amount):
     return img + (img - cv2.GaussianBlur(img, (0, 0), sigma)) * amount
 
@@ -370,8 +374,8 @@ def stylize_paint(rgb, Z, ID, meta, exposure, frame, paint=True):
     disp = to_srgb(aces(lin * 0.9))
     if paint:
         kw = kuwahara(disp, max(2, int(round(2 * s))))
-        disp = disp * 0.45 + kw * 0.55
-        disp = np.clip(unsharp(disp, 1.4 * s, 0.45), 0, 1)
+        disp = disp * (1 - PAINT_K) + kw * PAINT_K
+        disp = np.clip(unsharp(disp, 1.4 * s, PAINT_SHARP), 0, 1)
 
     lum = disp @ LUMA
     sh = (1 - lum) ** 2

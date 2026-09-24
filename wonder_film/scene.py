@@ -82,7 +82,7 @@ PALETTES = {
         wood=(0.50, 0.36, 0.22), plank=(0.60, 0.47, 0.31), rope=(0.34, 0.27, 0.17),
         cloth=(0.80, 0.74, 0.62), cloth2=(0.62, 0.30, 0.16), hull=(0.26, 0.17, 0.10), sail=(0.86, 0.79, 0.65),
         rock=((0.20, 0.16, 0.12), (0.40, 0.33, 0.24)), sand=((0.42, 0.30, 0.17), (0.58, 0.43, 0.26)),
-        dust=((0.44, 0.35, 0.23), (0.56, 0.45, 0.30)), scrub_ground=(0.30, 0.29, 0.13), scrub_k=0.45, cumulus=True,
+        dust=((0.44, 0.35, 0.23), (0.56, 0.45, 0.30)), scrub_ground=(0.30, 0.29, 0.13), scrub_k=0.45, cumulus=True, stone_detail=True,
         wet=(0.10, 0.09, 0.08),
         boulder=((0.18, 0.15, 0.12), (0.42, 0.36, 0.28)), boulder_wet=(0.08, 0.07, 0.06),
         water=((0.004, 0.040, 0.070), (0.025, 0.19, 0.18)), foam=(0.80, 0.83, 0.82),
@@ -316,7 +316,23 @@ def mat_masonry(name, base, joint_col, var=0.09, width=0.05, grime=None):
     bump = nb.new('ShaderNodeBump', invert=True)
     bump.inputs['Strength'].default_value = 0.35
     bump.inputs['Distance'].default_value = 0.05
-    nb.feed(bump.inputs['Height'], nb.math('ADD', j, nb.math('MULTIPLY', n2, 0.3)))
+    height = nb.math('ADD', j, nb.math('MULTIPLY', n2, 0.3))
+    if P.get('stone_detail'):
+        # dressed stone for close shots: claw-chisel tooling across each face,
+        # small pits, and softly worn arrises next to the joints
+        uv = nb.new('ShaderNodeUVMap', uv_map='UVMap').outputs[0]
+        u, v, _ = nb.sep(uv)
+        wv = nb.new('ShaderNodeTexWave', wave_type='BANDS', bands_direction='X')
+        nb.feed(wv.inputs['Vector'], nb.comb(nb.math('ADD', u, nb.math('MULTIPLY', v, 0.35)), v,
+                                             nb.math('MULTIPLY', tone, 13.0)))
+        wv.inputs['Scale'].default_value = 5.5
+        wv.inputs['Distortion'].default_value = 3.0
+        wv.inputs['Detail'].default_value = 2.0
+        pits = nb.noise(obj, 14.0, 2.0, 0.6).outputs['Fac']
+        tool = nb.math('MULTIPLY', wv.outputs['Fac'], 0.16)
+        height = nb.math('ADD', height, nb.math('ADD', tool, nb.math('MULTIPLY', nb.smooth(0.62, 0.72, pits), -0.5)))
+        bump.inputs['Strength'].default_value = 0.45
+    nb.feed(bump.inputs['Height'], height)
     nb.feed(b.inputs['Normal'], bump.outputs['Normal'])
     nb.feed(out.inputs['Surface'], b.outputs[0])
     return m

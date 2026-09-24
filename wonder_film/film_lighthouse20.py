@@ -85,32 +85,112 @@ def lerp3(a, b, u):
 
 
 # ================================================================= figures
-def bake(name, J, E, R, mat, subsurf=1, skin=None):
+def bake(name, J, E, R, mat, subsurf=2, skin=None, extra=None):
+    """Skin figure baked into a plain mesh.  With skin=True every face gets a
+    'region' attribute (tunic, skin, hair, beard, belt, sandal, basket) that
+    the person material turns into colours (per-person variation)."""
     o = SC.skin_figure(name, J, E, R, mat, subsurf)
     SC.link(o)
     dg = bpy.context.evaluated_depsgraph_get()
     dg.update()
     me = bpy.data.meshes.new_from_object(o.evaluated_get(dg))
     bpy.data.objects.remove(o)
-    if skin is not None:     # two-tone: tunic from the object colour, bare head, arms and legs
-        me.materials.append(skin)
-        idx = []
-        for p in me.polygons:
-            c = p.center
-            tunic = 0.58 < c.z < 1.47 and abs(c.x) < 0.2 and abs(c.y) < 0.22
-            idx.append(0 if tunic else 1)
-        me.polygons.foreach_set('material_index', idx)
-    return me
+    if not skin:
+        return me
+    V = np.array([v.co[:] for v in me.vertices])
+    F = [list(p.vertices) for p in me.polygons]
+    C = np.array([V[f].mean(axis=0) for f in F])
+    reg = person_regions(C, np.array(J, float))
+    if extra is not None:                          # e.g. a basket: appended with its own region
+        Vx, Fx, rx = extra
+        F += [list(np.asarray(f) + len(V)) for f in Fx]
+        V = np.concatenate([V, Vx])
+        reg = np.concatenate([reg, np.full(len(Fx), rx)])
+    Q = np.array([f if len(f) == 4 else f + [f[-1]] * (4 - len(f)) for f in F])
+    bpy.data.meshes.remove(me)
+    return SC.mesh_from_arrays(name, V, Q, face_attrs={'region': ('FLOAT', reg)}, mats=[mat], smooth=True)
+
+
+R_TUNIC, R_SKIN, R_HAIR, R_BEARD, R_BELT, R_SANDAL, R_BASKET = range(7)
+BONES = [(0, 1), (1, 2), (0, 18), (2, 3), (2, 4), (4, 5), (5, 6), (2, 7), (7, 8), (8, 9),
+         (0, 10), (10, 11), (11, 12), (12, 13), (0, 14), (14, 15), (15, 16), (16, 17), (3, 19)]
+
+
+def person_regions(C, J):
+    """Classify faces by the nearest bone: an exomis (tunic over the left
+    shoulder, right shoulder bare), belt, hair or head cloth, beard, sandals."""
+    d = np.full((len(C), len(BONES)), 1e9)
+    for k, (a, b) in enumerate(BONES):
+        A, Bv = J[a], J[b]
+        ab = Bv - A
+        t = np.clip(((C - A) @ ab) / max(ab @ ab, 1e-9), 0, 1)
+        d[:, k] = np.linalg.norm(C - (A + t[:, None] * ab), axis=1)
+    nb = np.argmin(d, axis=1)
+    reg = np.full(len(C), R_SKIN, float)
+    torso = np.isin(nb, [0, 1, 2])
+    reg[torso] = R_TUNIC
+    reg[torso & (np.abs(C[:, 2] - (J[0][2] + 0.02)) < 0.05)] = R_BELT
+    reg[(nb == 4) | ((nb == 5) & (np.linalg.norm(C - J[4], axis=1) < 0.12))] = R_TUNIC   # left shoulder
+    thigh = np.isin(nb, [10, 11, 14, 15]) & (C[:, 2] > J[18][2] - 0.02)
+    reg[thigh] = R_TUNIC
+    head = J[3]
+    hd = np.isin(nb, [3, 18])
+    rel = C - head
+    reg[hd & (rel[:, 2] > 0.015) & (rel[:, 1] < 0.06)] = R_HAIR
+    reg[hd & (rel[:, 2] > -0.02) & (rel[:, 1] < -0.06)] = R_HAIR
+    reg[hd & (rel[:, 2] < -0.02) & (rel[:, 2] > -0.14) & (rel[:, 1] > 0.02)] = R_BEARD
+    reg[np.isin(nb, [13, 17]) | (np.isin(nb, [12, 16]) & (C[:, 2] < J[12][2] + 0.03))] = R_SANDAL
+    return reg
+
+
+def mat_person():
+    """Tunic colour from the object, skin tone, hair or head cloth, beard and
+    sandals varied per person with Object Info > Random."""
+    m, nb, out = SC.new_material('Person')
+    oi = nb.new('ShaderNodeObjectInfo')
+    rnd = oi.outputs['Random']
+    reg = nb.attr('region').outputs['Fac']
+    r2 = nb.math('FRACT', nb.math('MULTIPLY', rnd, 7.31))
+    r3 = nb.math('FRACT', nb.math('MULTIPLY', rnd, 3.17))
+    r4 = nb.math('FRACT', nb.math('MULTIPLY', rnd, 5.73))
+    skin = nb.mix(rnd, (0.33, 0.19, 0.115, 1), (0.50, 0.32, 0.20, 1))
+    dark_hair = nb.mix(r3, (0.025, 0.018, 0.014, 1), (0.07, 0.045, 0.03, 1))
+    cloth = nb.mix(r4, (0.80, 0.77, 0.68, 1), (0.62, 0.50, 0.32, 1))
+    hair = nb.mix(nb.math('GREATER_THAN', r2, 0.62), dark_hair, cloth)
+    beard = nb.mix(nb.math('GREATER_THAN', r3, 0.45), skin, dark_hair)
+    sandal = nb.mix(nb.math('GREATER_THAN', r4, 0.35), skin, (0.19, 0.11, 0.055, 1))
+    tunic = oi.outputs['Color']
+    col = tunic
+    for k, c in ((R_SKIN, skin), (R_HAIR, hair), (R_BEARD, beard), (R_BELT, (0.13, 0.075, 0.04, 1)),
+                 (R_SANDAL, sandal), (R_BASKET, (0.52, 0.39, 0.2, 1))):
+        f = nb.math('COMPARE', reg, float(k), 0.5)
+        col = nb.mix(f, col, c)
+    b = SC.principled(nb, col, rough=0.85, spec=0.3)
+    nb.feed(out.inputs['Surface'], b.outputs[0])
+    return m
+
+
+def basket_geometry(cz, r0=0.19, r1=0.24, h=0.2, n=10):
+    """A wicker basket (open truncated cone) sitting at height cz on the head."""
+    ang = np.linspace(0, 2 * np.pi, n, endpoint=False)
+    bot = np.stack([r0 * np.cos(ang), r0 * np.sin(ang), np.full(n, cz)], 1)
+    top = np.stack([r1 * np.cos(ang), r1 * np.sin(ang), np.full(n, cz + h)], 1)
+    fill = np.stack([r1 * 0.9 * np.cos(ang), r1 * 0.9 * np.sin(ang), np.full(n, cz + h * 0.8)], 1)
+    V = np.concatenate([bot, top, fill, [[0, 0, cz], [0, 0, cz + h * 0.95]]])
+    F = [[i, (i + 1) % n, n + (i + 1) % n, n + i] for i in range(n)]
+    F += [[3 * n, (i + 1) % n, i, i] for i in range(n)]
+    F += [[3 * n + 1, 2 * n + i, 2 * n + (i + 1) % n, 2 * n + (i + 1) % n] for i in range(n)]
+    return V, F
 
 
 HUMAN_E = [(0, 1), (1, 2), (2, 3), (2, 4), (4, 5), (5, 6), (2, 7), (7, 8), (8, 9), (0, 10), (10, 11),
-           (11, 12), (12, 13), (0, 14), (14, 15), (15, 16), (16, 17), (0, 18)]
-HUMAN_R = [0.16, 0.17, 0.065, 0.105, 0.07, 0.05, 0.045, 0.07, 0.05, 0.045, 0.085, 0.065, 0.05, 0.04,
-           0.085, 0.065, 0.05, 0.04, 0.2]
+           (11, 12), (12, 13), (0, 14), (14, 15), (15, 16), (16, 17), (0, 18), (3, 19)]
+HUMAN_R = [0.16, 0.17, 0.065, 0.1, 0.07, 0.05, 0.045, 0.07, 0.05, 0.045, 0.085, 0.065, 0.05, 0.04,
+           0.085, 0.065, 0.05, 0.04, 0.2, 0.095]
 
 
 def human_joints(mode, ph=0.0):
-    """Joints of a man in a short tunic, facing +y.  mode: walk / stand / haul."""
+    """Joints of a man in a short tunic, facing +y.  mode: walk / carry / stand / haul."""
     bob = 0.0
     lean = 0.0
     legs = []
@@ -133,6 +213,19 @@ def human_joints(mode, ph=0.0):
             legs.append(((s * 0.12, fy * 0.5 + 0.05, 0.5), (s * 0.13, fy, 0.08)))
             reach = 0.32 + 0.16 * math.sin(ph + (0 if s < 0 else math.pi))
             arms.append(((s * 0.17, 0.5 * reach, 1.25), (s * 0.06, reach, 1.18)))
+    elif mode == 'carry':     # walking with a basket on the head, right hand steadying it
+        bob = 0.02 * math.cos(2 * ph)
+        for s in (-1, 1):
+            psi = ph + (0 if s < 0 else math.pi)
+            fy = 0.26 * math.sin(psi)
+            lift = 0.09 * max(0.0, math.cos(psi))
+            legs.append(((s * 0.1, 0.5 * fy + 0.06 + 0.06 * max(0.0, math.cos(psi)), 0.5 + 0.5 * lift),
+                         (s * 0.1, fy, 0.08 + lift)))
+            if s > 0:
+                arms.append(((0.27, 0.02, 1.62), (0.2, 0.0, 1.8)))
+            else:
+                hy = -0.18 * math.sin(psi)
+                arms.append(((-0.23, 0.5 * hy, 1.17), (-0.25, hy, 0.95)))
     else:                     # stand
         for s in (-1, 1):
             legs.append(((s * 0.1, 0.02, 0.5), (s * 0.11, 0.0, 0.08)))
@@ -149,24 +242,31 @@ def human_joints(mode, ph=0.0):
     for s, (kn, an) in zip((-1, 1), legs):
         J += [(s * 0.1, 0, 0.9 + bob), kn, an, (an[0], an[1] + 0.13, max(an[2] - 0.05, 0.02))]
     J.append((0, 0, 0.62 + bob))
+    J.append(tilt((0, 0.0, 1.71 + bob)))           # crown of the head
     return J
 
 
 def build_people(S, n_walk=12, n_haul=6):
-    m = S.m_worker
-    sk = SC.mat_simple('Skin', (0.40, 0.24, 0.15), 0.6)
-    S.walk_meshes = [bake(f'Walk{k}', human_joints('walk', 2 * math.pi * k / n_walk), HUMAN_E, HUMAN_R, m, skin=sk)
+    m = mat_person()
+    S.walk_meshes = [bake(f'Walk{k}', human_joints('walk', 2 * math.pi * k / n_walk), HUMAN_E, HUMAN_R, m, skin=True)
                      for k in range(n_walk)]
-    S.haul_meshes = [bake(f'Haul{k}', human_joints('haul', 2 * math.pi * k / n_haul), HUMAN_E, HUMAN_R, m, skin=sk)
+    S.carry_meshes = []
+    for k in range(n_walk):
+        Jc = human_joints('carry', 2 * math.pi * k / n_walk)
+        S.carry_meshes.append(bake(f'Carry{k}', Jc, HUMAN_E, HUMAN_R, m, skin=True,
+                                   extra=basket_geometry(Jc[19][2] + 0.04) + (R_BASKET,)))
+    S.haul_meshes = [bake(f'Haul{k}', human_joints('haul', 2 * math.pi * k / n_haul), HUMAN_E, HUMAN_R, m, skin=True)
                      for k in range(n_haul)]
-    S.stand_mesh = bake('Stand', human_joints('stand'), HUMAN_E, HUMAN_R, m, skin=sk)
+    S.stand_mesh = bake('Stand', human_joints('stand'), HUMAN_E, HUMAN_R, m, skin=True)
     S.people = []
     pal = SC.P['workers']
+    rng = np.random.default_rng(12)
     for i in range(24):
         o = SC.link(bpy.data.objects.new(f'Person{i}', S.stand_mesh))
         o.color = pal[(i * 5 + 1) % len(pal)] + (1.0,)
         o.pass_index = SC.PASS['worker']
         o.hide_render = True
+        o['size'] = float(rng.uniform(0.93, 1.06))
         S.people.append(o)
 
 
@@ -175,12 +275,15 @@ def place_person(S, i, loc, heading, mode='stand', ph=0.0):
     o.hide_render = False
     if mode == 'walk':
         o.data = S.walk_meshes[int(ph / (2 * math.pi) * len(S.walk_meshes)) % len(S.walk_meshes)]
+    elif mode == 'carry':
+        o.data = S.carry_meshes[int(ph / (2 * math.pi) * len(S.carry_meshes)) % len(S.carry_meshes)]
     elif mode == 'haul':
         o.data = S.haul_meshes[int(ph / (2 * math.pi) * len(S.haul_meshes)) % len(S.haul_meshes)]
     else:
         o.data = S.stand_mesh
     o.location = loc
     o.rotation_euler = (0, 0, heading - math.pi / 2)   # figure faces +y; heading is CCW from +x
+    o.scale = (o.get('size', 1.0),) * 3
     return o
 
 
@@ -538,6 +641,129 @@ def build_ship(S):
         o.hide_render = True
 
 
+def build_lighter(S):
+    """Stone lighter for the quay: a beamy planked hull without a mast, low
+    bulwarks, a rubbing wale, a steering oar; replaces the plain barge hulls."""
+    m_hull = mat_planking('LighterHull', (0.36, 0.25, 0.15), (0.30, 0.20, 0.12), (0.03, 0.025, 0.02))
+    m_deck = mat_planking('LighterDeck', (0.50, 0.39, 0.26), (0.50, 0.39, 0.26), (0.50, 0.39, 0.26),
+                          strake=0.26, butt=4.2)
+    L, Bm, ns, nk = 16.0, 6.4, 30, 8
+    ss = np.linspace(0, 1, ns)
+    x = (ss - 0.5) * L
+    b = 0.5 * Bm * np.sin(np.pi * np.clip(ss, 0, 1) ** 0.97) ** 0.33
+    keel = -1.15 * np.sin(np.pi * ss) ** 0.22 + 0.25 * (1 - np.sin(np.pi * ss) ** 0.22)
+    sheer = 1.3 + 0.55 * (1 - ss) ** 3 + 0.45 * ss ** 3
+    V, SD = [], []
+    for i in range(ns):
+        for j in range(-nk + 1, nk):
+            k = abs(j) / (nk - 1)
+            y = math.copysign(b[i] * math.sin(0.5 * math.pi * k) ** 0.4, j)
+            z = keel[i] + (sheer[i] - keel[i]) * k ** 1.6
+            V.append([x[i], y, z])
+            SD.append(sheer[i] - z)
+    V = np.array(V)
+    nj = 2 * nk - 1
+    Q = np.array([[i * nj + j, i * nj + j + 1, (i + 1) * nj + j + 1, (i + 1) * nj + j]
+                  for i in range(ns - 1) for j in range(nj - 1)])
+    girth = np.zeros(len(V))
+    for i in range(ns):
+        row = V[i * nj:(i + 1) * nj]
+        g = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(row, axis=0), axis=1))])
+        girth[i * nj:(i + 1) * nj] = np.abs(g - g[nk - 1])
+    uv = np.stack([V[Q.ravel(), 0], girth[Q.ravel()]], 1)
+    hull = SC.mesh_from_arrays('LighterHull', V, Q, uv=uv, face_attrs={'sheer_d': ('FLOAT', np.array(SD)[Q].mean(1))},
+                               mats=[m_hull], smooth=True)
+    tb = G.HexBatch('lighter')
+    zd = 1.08
+    tb.add(G.box(0, 0, zd - 0.12, L * 0.84, Bm * 0.8, 0.12), mat=0)            # deck
+    for i in range(1, ns - 2):
+        for sg in (-1, 1):
+            for dz, w, h in ((0.02, 0.12, 0.12), (-0.45, 0.2, 0.18)):
+                tb.add(G.beam([x[i], sg * (b[i] + 0.03), sheer[i] + dz], [x[i + 1], sg * (b[i + 1] + 0.03), sheer[i + 1] + dz],
+                              w, h), mat=1)
+    for xx in np.linspace(-L * 0.36, L * 0.36, 7):                               # deck beams / thwarts
+        tb.add(G.beam([xx, -Bm * 0.42, zd + 0.02], [xx, Bm * 0.42, zd + 0.02], 0.16, 0.12), mat=1)
+    top = np.array([-L * 0.5 + 1.6, 0.9, sheer[2] + 0.9])                         # steering oar
+    piv = np.array([-L * 0.5 + 0.4, 1.9, sheer[1]])
+    low = piv + (piv - top) / np.linalg.norm(piv - top) * 2.6
+    tb.add(G.beam(top, low, 0.14), mat=1)
+    dv = (low - piv) / np.linalg.norm(low - piv)
+    tb.add(G.beam(low - dv * 0.2, low + dv * 1.6, 0.5, 0.08, up=(0, 1, 0)), mat=1)
+    tb.add(G.beam([-L * 0.5 + 0.2, 0, sheer[0] - 0.6], [-L * 0.5 - 0.35, 0, sheer[0] + 0.5], 0.3, 0.3), mat=1)
+    tb.add(G.beam([L * 0.5 - 0.3, 0, -0.9], [L * 0.5 + 0.25, 0, sheer[-1] + 0.3], 0.28, 0.26), mat=1)
+    for k in range(3):                                                             # rope coils
+        tb.add(G.box(L * 0.36, (k - 1) * 0.9, zd, 0.6, 0.6, 0.18), mat=2)
+    tb.finalize()
+    rig = SC.hex_mesh('LighterRig', tb, np.ones(len(tb.t_on), bool), [m_deck, S.m_wood, S.m_rope])
+    for h, r, cg in S.barges:
+        h.data = hull
+        r.data = rig
+
+
+WHEEL_C = (-2.2, 0.0, 1.9)        # treadwheel axle in the quay crane's frame
+WHEEL_R = 1.6
+DRUM_R = 0.25
+
+
+def build_quay_crane(S):
+    """Slewing quay crane on a timber turntable, driven by a treadwheel on the
+    counterweight side.  Same mast and jib as the site cranes (same hook
+    position); the wheel turns with the hoist: rope speed = drum radius x
+    wheel rate, the men inside walk at the wheel's rim speed."""
+    tip = np.array(S.crane_tip)
+    cb = G.HexBatch('quay_crane')
+    cb.add(G.box(-1.3, 0, 0.0, 4.8, 3.4, 0.25), mat=1)                        # turntable deck
+    cb.add(G.beam([0, 0, 0.25], [0, 0, 9.0], 0.36), mat=0)                    # mast
+    cb.add(G.beam([0, 0, 1.0], tip, 0.3), mat=0)                              # jib
+    cb.add(G.beam([0, 0, 9.0], tip, 0.06), mat=2)                             # jib stay
+    for sg in (-1, 1):
+        cb.add(G.beam([0, 0, 9.0], [-3.6, sg * 1.6, 0.3], 0.05), mat=2)       # back stays
+        for x0 in (-3.4, -1.0):                                               # wheel trestles
+            cb.add(G.beam([x0, sg * 0.8, 0.25], [WHEEL_C[0], sg * 0.8, WHEEL_C[2]], 0.18), mat=0)
+    cb.add(G.beam([WHEEL_C[0], 0, WHEEL_C[2]], [-0.25, 0, 0.9], 0.05), mat=2)   # rope: drum -> mast sheave
+    cb.add(G.beam([0.2, 0, 1.25], tip + np.array([0, 0, -0.3]), 0.05), mat=2)   # hoist fall along the jib
+    cb.add(G.box(-3.3, 0, 0.25, 0.9, 2.6, 0.9), mat=3)                        # counterweight stones
+    cb.finalize()
+    S.cranes[5][0].data = SC.hex_mesh('QuayCrane', cb, np.ones(len(cb.t_on), bool),
+                                      [S.m_wood, S.m_plank, S.m_rope, S.m_stone])
+    wb = G.HexBatch('wheel')
+    n = 16
+    for side in (-0.55, 0.55):
+        pts = [(WHEEL_R * math.cos(2 * math.pi * k / n), side, WHEEL_R * math.sin(2 * math.pi * k / n)) for k in range(n)]
+        for k in range(n):
+            wb.add(G.beam(pts[k], pts[(k + 1) % n], 0.13, 0.12, up=(0, 1, 0)), mat=0)
+            if k % 2 == 0:
+                wb.add(G.beam((0, side, 0), pts[k], 0.09, 0.09, up=(0, 1, 0)), mat=0)
+    for k in range(2 * n):                                                    # treads
+        a = 2 * math.pi * (k + 0.5) / (2 * n)
+        c, s_ = math.cos(a) * (WHEEL_R - 0.06), math.sin(a) * (WHEEL_R - 0.06)
+        wb.add(G.beam((c, -0.58, s_), (c, 0.58, s_), 0.13, 0.05, up=(math.cos(a), 0, math.sin(a))), mat=1)
+    wb.add(G.beam((0, -0.95, 0), (0, 0.95, 0), 2 * DRUM_R, 2 * DRUM_R), mat=0)   # axle with rope drum
+    wb.finalize()
+    S.tread = SC.link(bpy.data.objects.new('Treadwheel', SC.hex_mesh('Treadwheel', wb, np.ones(len(wb.t_on), bool),
+                                                                      [S.m_wood, S.m_plank])))
+    S.tread.pass_index = SC.PASS['crane']
+    S.tread.hide_render = True
+
+
+def pose_treadwheel(S, angle, walkers=None, first_person=0, walk_ph=0.0):
+    """Wheel on crane 5 (follows its slew).  walkers: number of men inside."""
+    c = S.cranes[5][0]
+    if c.hide_render:
+        S.tread.hide_render = True
+        return first_person
+    M = c.matrix_world
+    S.tread.matrix_world = M @ Matrix.Translation(WHEEL_C) @ Matrix.Rotation(angle, 4, 'Y')
+    S.tread.hide_render = False
+    k = first_person
+    for j in range(walkers or 0):
+        p = M @ Vector((WHEEL_C[0] + 0.3, (j - 0.5) * 0.46, WHEEL_C[2] - WHEEL_R + 0.1))
+        yaw = math.atan2(M[1][0], M[0][0])
+        place_person(S, k, (p.x, p.y, p.z), yaw, 'walk', walk_ph + j * 1.7)
+        k += 1
+    return k
+
+
 def sail_mesh(S, brace, brail, t):
     """Yard + billowing square sail, brailed up by `brail` (0 full .. 1 furled)."""
     xm = S.ship_mast_x
@@ -645,6 +871,8 @@ def build_sledge(S):
 
 def build(res=(1280, 720)):
     S = SC.build(res, look=LOOK, derrick=True)
+    build_lighter(S)
+    build_quay_crane(S)
     build_sledge(S)
     build_people(S)
     build_carts(S)
@@ -654,7 +882,7 @@ def build(res=(1280, 720)):
 
 
 def hide_extras(S):
-    for o in S.people + S.gulls + [S.sledge]:
+    for o in S.people + S.gulls + [S.sledge, S.tread]:
         o.hide_render = True
     for c, wheels, oxen in S.carts:
         c.hide_render = True
@@ -695,24 +923,31 @@ def shot_S1(S, v):
     slew = math.radians(15.0 + 45.0 * TL.ease_io(u))
     c.matrix_world = Matrix.Translation(QUAY_CRANE) @ Matrix.Rotation(slew, 4, 'Z')
     tip = c.matrix_world @ Vector(S.crane_tip)
-    lz = 4.2 + 1.6 * TL.ease_io(min(u * 1.6, 1.0))
+    lift = 0.5 * u                                     # a treadwheel lifts slowly: ~0.17 m/s
+    lz = 5.0 + lift
     swing = 0.25 * math.sin(2.1 * v)
     load.hide_render = rope.hide_render = False
     load.matrix_world = Matrix.Translation((tip.x + swing * 0.3, tip.y, lz)) @ Matrix.Rotation(slew, 4, 'Z')
     rope.matrix_world = Matrix.Translation(tip) @ Matrix.Diagonal((1, 1, tip.z - lz, 1))
     # people: walkers on the jetty and the track, a crew at the crane and on the barge
     k = 0
-    walkers = [((33.0, -100.0), math.radians(90), 1.25, 0.0), ((38.0, -70.0), math.radians(-90), 1.2, 1.0),
-               ((31.5, -80.0), math.radians(95), 1.3, 2.0), ((36.0, -60.0), math.radians(125), 1.15, 0.5),
-               ((24.0, -46.0), math.radians(130), 1.1, 1.5), ((41.0, -84.0), math.radians(-88), 1.2, 2.5),
-               ((29.0, -55.0), math.radians(-50), 1.25, 3.0)]
-    for (x0, y0), hd, spd, ph0 in walkers:
+    walkers = [((33.0, -100.0), math.radians(90), 1.25, 0.0, 'walk'), ((38.0, -70.0), math.radians(-90), 1.1, 1.0, 'carry'),
+               ((31.5, -80.0), math.radians(95), 1.3, 2.0, 'walk'), ((36.0, -60.0), math.radians(125), 1.1, 0.5, 'carry'),
+               ((24.0, -46.0), math.radians(130), 1.1, 1.5, 'walk'), ((41.0, -84.0), math.radians(-88), 1.2, 2.5, 'walk'),
+               ((29.0, -55.0), math.radians(-50), 1.1, 3.0, 'carry')]
+    for (x0, y0), hd, spd, ph0, mode in walkers:
         dist = spd * v
         x = x0 + math.cos(hd) * dist
         y = y0 + math.sin(hd) * dist
         z = 2.95 if (29.5 < x < 42.5 and -108 < y < -64) else ground_z(x, y)
-        place_person(S, k, (x, y, z), hd, 'walk', ph0 + dist / 1.45 * 2 * math.pi)
+        place_person(S, k, (x, y, z), hd, mode, ph0 + dist / 1.45 * 2 * math.pi)
         k += 1
+    # two men walking in the treadwheel; the rope drum winds exactly the lifted length
+    ang = lift / DRUM_R
+    k = pose_treadwheel(S, ang, walkers=2, first_person=k, walk_ph=ang * (WHEEL_R - 0.06) / 1.45 * 2 * math.pi)
+    # a guide line from the load to the man steadying it
+    lb = load.matrix_world @ Vector((0.9, 0.0, -1.0))
+    set_lines(S, [((lb.x, lb.y, lb.z), (41.0, -95.2, 2.95 + 1.2))])
     for (x, y, z, hd, mode) in ((41.0, -95.5, 2.95, math.radians(180), 'haul'), (39.2, -96.8, 2.95, math.radians(160), 'haul'),
                                 (46.4, -85.8, 1.3, math.radians(200), 'stand'), (48.8, -85.6, 1.3, math.radians(250), 'haul'),
                                 (35.5, -63.0, ground_z(35.5, -63.0), math.radians(40), 'stand')):
@@ -786,6 +1021,19 @@ def shot_S3(S, v):
     return meta
 
 
+def set_lines(S, segments):
+    """Free rope segments for the current frame (hidden when empty)."""
+    if not hasattr(S, 'lines_obj'):
+        S.lines_obj = SC.link(bpy.data.objects.new('Lines', bpy.data.meshes.new('Lines')))
+        S.lines_obj.pass_index = SC.PASS['crane']
+    lb = G.HexBatch('lines')
+    for a, b in segments:
+        lb.add(G.beam(a, b, 0.035), mat=0)
+    lb.finalize()
+    SC.set_dynamic_mesh(S.lines_obj, 'Lines', lb, np.ones(len(lb.t_on), bool), [S.m_rope])
+    S.lines_obj.hide_render = not segments
+
+
 def set_taglines(S, anchors, p):
     if not hasattr(S, 'taglines'):
         S.taglines = SC.link(bpy.data.objects.new('TagLines', bpy.data.meshes.new('TagLines')))
@@ -856,6 +1104,10 @@ def pose(S, f):
     hide_extras(S)
     if hasattr(S, 'taglines'):
         S.taglines.hide_render = name != 'S3'
+    if hasattr(S, 'lines_obj'):
+        S.lines_obj.hide_render = True
     meta = SHOT_FN[name](S, v)
+    if name != 'S1':
+        pose_treadwheel(S, 0.8 * v)          # the quay crane keeps its wheel in the wide shots
     meta.update(shot=name, shot_t=v - a, t=v)
     return meta
