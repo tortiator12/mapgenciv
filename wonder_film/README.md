@@ -69,19 +69,21 @@ the picture, because the game shows the title and year itself.
 
 | shot | time | what you see | clock |
 |---|---|---|---|
-| S1 | 0–3 s | the quay on Pharos, morning: a crane swings a block off a barge, a team drags a sledge, ox carts leave for the site, gulls | real time |
-| S2 | 3–11 s | slow orbit: podium → square tier → octagon → lantern; scaffolds climb and are struck, derricks lift; one short night by torchlight | time-lapse |
-| S3 | 11–13.5 s | golden hour at the lantern: a guyed derrick lifts the bronze Zeus Soter, slews it over the dome and lowers it; men steady it on tag lines | slow time-lapse |
-| S4 | 13.5–16 s | sunset, scaffolding gone: the beacon is lit | time-lapse |
-| S5 | 16–20 s | blue hour: a merchantman with a swan-neck stern and a stern lantern brails up its sail on the way into the Great Harbour; Alexandria's lights on the horizon | real time |
+| S1 | 0–3 s | the quay on Pharos, morning: a treadwheel crane swings a block off a lighter, a team drags a sledge with the rope over their shoulders, masons dress blocks, a scribe counts under an awning, water carriers, a rowing boat pulls away, smoke from the camp, ox carts, gulls | real time |
+| S2 | 3–11 s | slow orbit: podium → square tier → octagon → lantern; scaffolds climb and are struck, derricks lift; crowds on the podium, sledge teams and carts on beaten tracks, boats offshore; one short night by torchlight | time-lapse |
+| S3 | 11–13.5 s | golden hour at the lantern: a guyed derrick lifts the bronze Zeus Soter, slews it over the dome and lowers it; men on the roof and the lantern scaffold steady and receive it; gulls, boats far out | slow time-lapse |
+| S4 | 13.5–16 s | sunset, scaffolding gone: the beacon is lit, its smoke drifts downwind; people on the podium, boats coming home | time-lapse |
+| S5 | 16–20 s | blue hour: a merchantman with a swan-neck stern and a stern lantern brails up its sail on the way into the Great Harbour; lamp-lit rowing boats, ships at anchor, fire-lit smoke over the beacon, Alexandria's lights on the horizon | real time |
 
 | file | role |
 |---|---|
 | `film_lighthouse20.py` | The edit: per-shot clocks (construction time, hour, animation), cameras, and the extras only this film needs: walk-cycle people with tunics, yoked ox carts with turning wheels, gulls, a sledge team, the hero ship with a brailed sail. |
 | `scene.py` | Shared with the 30-s film. `build(look='bright', derrick=True)` selects the sunny palettes, cumulus sky, ashlar quay and the detailed statue. `pose(S, t, **clocks)` takes separate clocks, and with no keywords it gives exactly the 30-s film. |
 | `stylize.py --look paint` | Aerial haze, filmic tone curve, soft Kuwahara paint with the detail sharpened back in, bloom and beacon glow, warm grade. Auto-exposure is smoothed within each shot and never across a cut. |
-| `audio_lighthouse20.py` | Lyre alone at the quay; frame drum, plucked ostinato and chisels for the time-lapse; crickets in the night; an aulos over the statue; A7(b9) → D major with boom, gong and choir exactly when the fire catches (14.0 s); waves, creaking timber and a sailor's call at the end. Mean level −24 dB, like the other game films. |
-| `make_lighthouse20.sh` | Render → stylize → soundtrack → MP4 (H.264) and OGV (Theora/Vorbis, for Godot). |
+| `audio_lighthouse20.py` | Lyre alone at the quay; frame drum, plucked ostinato and chisels for the time-lapse; crickets in the night; an aulos over the statue; A7(b9) → D major with boom, gong and choir exactly when the fire catches (14.0 s); waves, creaking timber and a sailor's call at the end; oar strokes in step with the rowing boats and mallet blows on the masons' down-swings. Mean level −24 dB, like the other game films. |
+| `life.py` | Life around the site: rowing boats whose oars follow the rowers (blade in the water only on the drive), small sailing boats running before the wind, ships at anchor with lamps, billboard smoke that rises, spreads and thins, pennants, the quay's clutter, masons' sheds, chip heaps and mortar pits. One wind (the Etesian NNW) for smoke, pennants and sails. |
+| `stabilize.py` | Temporal stabilisation after stylize: each frame is blended with the previous result warped by optical flow, only where the two agree, so shimmer is averaged away and real motion passes through. Resets at every cut. |
+| `make_lighthouse20.sh` | Render → stylize → stabilise → soundtrack → MP4 (H.264) and OGV (Theora/Vorbis, for Godot). |
 
 Detail pass (no extra cost): photographed CC0 textures from Poly Haven, fetched
 by `fetch_textures.py` into `assets/textures/` (weathered planks for hulls and
@@ -91,6 +93,18 @@ and only adds detail, so the palette keeps the colours. Close shots also get a
 treadwheel-driven quay crane, planked stone lighters, and people with tunics,
 belts, hair or head cloths, and baskets.
 
+Against flicker: Cycles does not mip-map image textures, so every texture has
+pre-filtered 256 px and 64 px copies and the material picks the level from
+the pixel footprint (distance × pixel angle). Mortar joints, cart ruts, stone
+chips and far window lights fade to their mean tone once they are thinner
+than a pixel. The time-lapse clocks for people, loads, clouds and water run
+calmer, there is no film grain, and `stabilize.py` removes what is left
+(flow-compensated flicker −60 to −66 % against the previous version).
+
+Figures: besides walking, carrying and hauling, the people drag sledge ropes
+over the shoulder, dress stone with mallet and chisel, sit, write, point,
+carry amphorae, pour water, carry torches and row (elbows and knees by IK).
+
 Physics notes: the statue always hangs plumb under the boom tip, and the tip
 is high enough (boom heel 6 m up the mast, so the boom clears the lantern
 scaffold). The derrick's guys are anchored on the octagon roof and on the
@@ -98,7 +112,7 @@ first terrace, and the derrick never lowers a load into the lantern. The
 beacon is an open fire. There is no rotating beam.
 
 ```bash
-PYTHON=venv/bin/python wonder_film/make_lighthouse20.sh               # all 480 frames (~1.5 h on 4 cores)
+PYTHON=venv/bin/python wonder_film/make_lighthouse20.sh               # all 480 frames (~2.5 h on 4 cores)
 venv/bin/python wonder_film/render.py --film lighthouse20 --out /tmp/l20 --frames 30,200,300,420 \
     --res 640x360 --no-lines                                              # quick look
 venv/bin/python wonder_film/stylize.py --inp /tmp/l20 --out /tmp/l20png --look paint --no-titles

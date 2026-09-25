@@ -1,11 +1,13 @@
 """Soundtrack for the 20-s game film 'Der Leuchtturm' (numpy/scipy only).
 
 Follows the five shots of film_lighthouse20.py:
-  S1 0-3 s     harbour: sea, gulls, the quay crane creaking, an ox cart; a lyre alone
+  S1 0-3 s     harbour: sea, gulls, the quay crane creaking, an ox cart, oars dipping in step
+               with the rowing boat, masons' mallets on the beat of their swings; a lyre alone
   S2 3-11 s    time-lapse: frame-drum groove, plucked ostinato, chisels by day, crickets at night
   S3 11-13.5 s the statue: groove thins out, winch creaks, A7(b9) with a riser
   S4 13.5-16 s the beacon catches at 14.0 s: whoosh, boom, gong, D major with choir
-  S5 16-20 s   night harbour: waves on a hull, creaking timber, a sailor's call, soft lyre
+  S5 16-20 s   night harbour: waves on a hull, creaking timber, a sailor's call, oars of the
+               lamp-lit boats, soft lyre
 
 Loudness matches the existing wonder films (mean volume about -24 dB).
 
@@ -150,6 +152,35 @@ def voice_call(dur=1.1, m=55):
     return lowpass(x, 2500) * A.env_adsr(n, 0.08, 0.2, 0.8, 0.35)
 
 
+def oar_stroke(n_oars=4, spread=0.05):
+    """Blades entering the water at the catch: a short splash per oar, a knock on the thole pins."""
+    n = int(0.45 * SR)
+    out = np.zeros(n)
+    for j in range(n_oars):
+        m = int(0.28 * SR)
+        k = np.arange(m) / SR
+        x = bandpass(RNG.normal(0, 1, m), 350, 3200) * (1 - np.exp(-k * 400)) * np.exp(-k * 16)
+        x += 0.25 * bandpass(RNG.normal(0, 1, m), 2500, 7000) * np.exp(-k * 40)
+        i0 = int(RNG.uniform(0, spread) * SR)
+        out[i0:i0 + m] += x[:n - i0]
+        q = int(0.05 * SR)
+        kq = np.arange(q) / SR
+        knock = np.sin(2 * np.pi * RNG.uniform(420, 620) * kq) * np.exp(-kq * 90)
+        i1 = max(0, i0 - int(0.02 * SR))
+        out[i1:i1 + q] += 0.35 * knock[:n - i1]
+    return out
+
+
+def mallet_on_chisel():
+    """An iron chisel struck by a wooden mallet: a bright ring over a dull knock."""
+    n = int(0.16 * SR)
+    k = np.arange(n) / SR
+    x = np.sin(2 * np.pi * RNG.uniform(2600, 3400) * k) * np.exp(-k * 70)
+    x += 0.5 * np.sin(2 * np.pi * RNG.uniform(5200, 6400) * k) * np.exp(-k * 120)
+    x += 0.8 * lowpass(RNG.normal(0, 1, n), 1200) * np.exp(-k * 110)
+    return x
+
+
 def sfx():
     out = np.zeros((N, 2))
     t = np.arange(N) / SR
@@ -176,6 +207,12 @@ def sfx():
         place(out, x * 0.05, 0.2 + k * 0.31 + RNG.uniform(-0.03, 0.03), pan=-0.35)
     rumble = lowpass(RNG.normal(0, 1, int(3.0 * SR)), 180) * 0.05
     place(out, rumble * A.env_adsr(len(rumble), 0.3, 0.1, 1.0, 0.5), 0.0, pan=-0.3)
+    # the rowing boats (catch times from life.stroke: near boat 0.0 / 2.5 s, far boat 1.35 s)
+    for tt, pan, g in ((0.02, 0.6, 0.12), (2.5, 0.62, 0.12), (1.35, 0.8, 0.05)):
+        place(out, oar_stroke(), tt, pan=pan, gain=g)
+    # the masons' mallets, on the down-swing of their 'hammer' poses (film_lighthouse20.shot_S1)
+    for tt, pan in ((0.16, -0.25), (0.81, -0.3), (1.92, -0.2), (2.58, -0.25)):
+        place(out, mallet_on_chisel(), tt, pan=pan, gain=0.08)
 
     # S2/S3: chisels and mallets (dense by day), crickets in the short night
     tt = 3.1
@@ -227,6 +264,8 @@ def sfx():
     for tt, f0 in ((16.2, 90.0), (17.4, 120.0), (18.6, 85.0), (19.3, 105.0)):
         place(out, creak(RNG.uniform(0.6, 1.0), f0), tt, pan=RNG.uniform(-0.2, 0.4), gain=0.04)
     place(out, voice_call(1.2, 55), 17.1, pan=0.25, gain=0.035)
+    for tt, pan in ((16.85, -0.5), (17.5, -0.1), (19.35, -0.5)):      # the lamp-lit boats rowing past
+        place(out, oar_stroke(), tt, pan=pan, gain=0.025)
     place(out, voice_call(0.9, 52), 18.5, pan=0.3, gain=0.025)
     return out
 
