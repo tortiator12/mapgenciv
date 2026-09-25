@@ -1132,17 +1132,19 @@ def sledge_team(S, idx, k, pos, heading, ph, z=None):
 
 
 S1_CAM0 = ((61.0, -113.0, 8.5), (41.5, -88.0, 5.0))
+S1_SKY, S2_SKY, S3_SKY, S4_SKY = 1.6, 0.0, 0.0, 2.4     # where the photographed sky's clouds sit (rad)
 S1_CAM1 = ((56.5, -116.0, 8.5), (38.5, -86.5, 5.0))
 
 
 def shot_S1(S, v):
     """The quay, 08:00, real time: a working morning."""
     u = v / 3.0
-    hour = 8.0 + 0.25 * u
+    hour = 7.3 + 0.2 * u                               # early morning: low, golden sun, long shadows
     e = TL.ease_io(u)
     cam = (lerp3(S1_CAM0[0], S1_CAM1[0], e), lerp3(S1_CAM0[1], S1_CAM1[1], e), 30.0)
     meta = SC.pose(S, v, tc=0.95, hour=hour, life=v, hop_t=0.3, sea_t=40.0 + v, water_t=16.0 + 0.4 * v,
-                   cloud_t=hour * 0.75, shadow_t=hour * 124.0, cover=0.02, cloud_gain=7.0, shadow_cover=0.3,
+                   cloud_t=hour * 0.75, shadow_t=hour * 124.0, cover=0.35, cloud_gain=7.0, shadow_cover=0.3,
+                   hdri=1.0, hdri_rot=S1_SKY + 0.002 * v,
                    traffic=False, crane5_loc=QUAY_CRANE, statue_yaw=STATUE_YAW, cam=cam)
     dress_workers(S, 0.3)
     # barges: one moored alongside the jetty being unloaded, one coming in
@@ -1295,7 +1297,8 @@ def shot_S2(S, v):
     # their shadows drift steadily instead of racing with the clock at night
     hop_t = v * 0.45
     meta = SC.pose(S, v, tc=tc, hour=hour, life=v, hop_t=hop_t, sea_t=v * 1.4, water_t=v * 0.6,
-                   cloud_t=6.0 + v * 1.1, shadow_t=1000.0 + v * 70.0, cover=0.04 + 0.04 * math.sin(v * 0.7),
+                   cloud_t=6.0 + v * 1.1, shadow_t=1000.0 + v * 70.0, cover=0.28 + 0.06 * math.sin(v * 0.7),
+                   hdri=1.0, hdri_rot=S2_SKY + 0.06 * (v - 3.0),
                    cloud_gain=7.0, shadow_cover=0.3, moon=0.0, crane5_loc=QUAY_CRANE, statue_yaw=STATUE_YAW,
                    cam=cam, crowd=2.5, torch_t=v * 0.08, sky_log=True)
     dress_workers(S, hop_t)
@@ -1357,7 +1360,8 @@ def shot_S3(S, v):
     loc, tgt, lens = S3_CAM
     loc = lerp3(loc, bearing_pos(146.0, 58.0, 105.5), TL.ease_io(u))
     meta = SC.pose(S, v, tc=22.95, hour=hour, life=v, hop_t=11.0 + (v - 11.0) * 0.5, sea_t=v * 1.5,
-                   water_t=v * 0.6, cloud_t=hour * 0.75, shadow_t=hour * 124.0, cover=0.06, cloud_gain=7.0,
+                   water_t=v * 0.6, cloud_t=hour * 0.75, shadow_t=hour * 124.0, cover=0.22, cloud_gain=7.0,
+                   hdri=1.0, hdri_rot=S3_SKY + 0.003 * v,
                    shadow_cover=0.3, statue_p=p, statue_yaw=STATUE_YAW, crane5_loc=QUAY_CRANE,
                    cam=(loc, tgt, lens))
     dress_workers(S, 11.0 + (v - 11.0) * 0.5)
@@ -1468,7 +1472,8 @@ def shot_S4(S, v):
     e = TL.ease_io(u)
     cam = (lerp3(a[0], b[0], e), lerp3(a[1], b[1], e), 38.0)
     meta = SC.pose(S, v, tc=25.2, hour=hour, life=v, hop_t=v * 0.8, sea_t=v * 1.2, water_t=v * 0.5,
-                   cloud_t=hour * 0.75, shadow_t=hour * 124.0, cover=0.1, cloud_gain=6.0, shadow_cover=0.25,
+                   cloud_t=hour * 0.75, shadow_t=hour * 124.0, cover=0.25, cloud_gain=6.0, shadow_cover=0.25,
+                   hdri=1.0, hdri_rot=S4_SKY + 0.003 * v,
                    fire=fire, fire_surge=surge, crane5_loc=QUAY_CRANE, statue_yaw=STATUE_YAW, cam=cam)
     dress_workers(S, v * 0.8)
     k = podium_crowd(S, 0, v)

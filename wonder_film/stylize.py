@@ -328,6 +328,48 @@ def unsharp(img, sigma, amount):
     return img + (img - cv2.GaussianBlur(img, (0, 0), sigma)) * amount
 
 
+# the look of the game's other wonder films (painted, but realistic): warm golden light,
+# calmer blues, deeper tones and a little more depth; per shot (warm a*, b* shift in Lab,
+# overall gain).  The night shot keeps its colours.
+WONDER = dict(warm={'S1': (0.8, 4.5), 'S2': (0.6, 4.5), 'S3': (0.4, 3.0), 'S4': (0.0, 2.0), 'S5': (0.0, 1.0)},
+              gain={'S1': 0.92, 'S2': 0.94, 'S3': 0.95, 'S4': 0.98, 'S5': 1.0},
+              blue_desat=0.08, warm_sat=0.06, contrast=5.0, pivot=0.48, mix=0.8, clarity=0.3, canvas=0.03)
+_CANVAS = {}
+
+
+def canvas_texture(h, w):
+    """Fixed painted-canvas grain: fine speckle plus short horizontal brush streaks."""
+    if (h, w) not in _CANVAS:
+        rng = np.random.default_rng(3)
+        fine = cv2.GaussianBlur(rng.normal(0, 1, (h, w)).astype(np.float32), (0, 0), 0.7)
+        streak = cv2.GaussianBlur(rng.normal(0, 1, (h, w)).astype(np.float32), (0, 0), sigmaX=6.0, sigmaY=0.8)
+        _CANVAS[(h, w)] = fine / fine.std() * 0.6 + streak / streak.std() * 0.4
+    return _CANVAS[(h, w)]
+
+
+def wonder_grade(disp, shot, p=WONDER):
+    """Display-referred grade in Lab: warm shift, blues calmed and warm hues enriched,
+    an S-curve for depth, local contrast (clarity) and the canvas grain."""
+    lab = cv2.cvtColor(disp.astype(np.float32), cv2.COLOR_RGB2Lab)
+    L, a, b = lab[..., 0], lab[..., 1], lab[..., 2]
+    da, db = p['warm'].get(shot, (0.0, 0.0))
+    a = a + da
+    b = b + db
+    blue = smoothstep(-2.0, -25.0, b)
+    k = 1.0 - p['blue_desat'] * blue + p['warm_sat'] * (1 - blue)
+    a, b = a * k, b * k
+    t = L / 100.0
+    c, pv = p['contrast'], p['pivot']
+    s0, s1 = 1 / (1 + np.exp(c * pv)), 1 / (1 + np.exp(-c * (1 - pv)))
+    t2 = (1 / (1 + np.exp(-c * (t - pv))) - s0) / (s1 - s0)
+    L = 100.0 * (t * (1 - p['mix']) + t2 * p['mix']) * p['gain'].get(shot, 1.0)
+    out = cv2.cvtColor(np.stack([np.clip(L, 0, 100), a, b], -1).astype(np.float32), cv2.COLOR_Lab2RGB)
+    blur = cv2.GaussianBlur(out, (0, 0), 14 * out.shape[0] / 720.0)
+    out = out + (out - blur) * p['clarity']
+    out = out * (1 + p['canvas'] * canvas_texture(*out.shape[:2])[..., None])
+    return np.clip(out, 0, 1)
+
+
 def stylize_paint(rgb, Z, ID, meta, exposure, frame, paint=True):
     """Bright, warm, painterly look of the Civ1 wonder films: aerial haze,
     filmic tone curve, soft Kuwahara paint with the detail sharpened back in,
@@ -390,6 +432,8 @@ def stylize_paint(rgb, Z, ID, meta, exposure, frame, paint=True):
     disp = 1.0 - (1.0 - disp) * (1.0 - np.clip(glow_disp, 0, 1))
     if stars is not None:
         disp = disp + stars[..., None] * np.array([0.9, 0.93, 1.0], np.float32)
+    if paint:
+        disp = wonder_grade(np.clip(disp, 0, 1), meta.get('shot', ''))
     yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
     rr = np.hypot((xx - W / 2) / (W / 2), (yy - H / 2) / (H / 2)) / math.sqrt(2)
     disp = disp * (1.0 - 0.22 * rr ** 2.4)[..., None]

@@ -78,14 +78,15 @@ PALETTES = {
         workers=[(0.62, 0.58, 0.5), (0.55, 0.45, 0.32), (0.45, 0.2, 0.12), (0.7, 0.66, 0.58),
                  (0.35, 0.3, 0.25), (0.5, 0.36, 0.2)]),
     'bright': dict(
-        stone=((0.74, 0.64, 0.48), (0.46, 0.40, 0.30)), podium=((0.64, 0.56, 0.43), (0.38, 0.33, 0.25)),
-        paving=((0.60, 0.52, 0.40), (0.36, 0.31, 0.24)), grime=0.14,
+        stone=((0.68, 0.55, 0.38), (0.42, 0.33, 0.22)), podium=((0.60, 0.49, 0.35), (0.35, 0.28, 0.19)),
+        paving=((0.52, 0.42, 0.30), (0.31, 0.25, 0.17)), grime=0.18,
         wood=(0.50, 0.36, 0.22), plank=(0.60, 0.47, 0.31), rope=(0.34, 0.27, 0.17),
         cloth=(0.80, 0.74, 0.62), cloth2=(0.62, 0.30, 0.16), hull=(0.26, 0.17, 0.10), sail=(0.86, 0.79, 0.65),
-        rock=((0.20, 0.16, 0.12), (0.40, 0.33, 0.24)), sand=((0.42, 0.30, 0.17), (0.58, 0.43, 0.26)),
-        dust=((0.44, 0.35, 0.23), (0.56, 0.45, 0.30)), scrub_ground=(0.30, 0.29, 0.13), scrub_k=0.45, cumulus=True, stone_detail=True, textures=True, filtered_joints=True, worksite=True, wakes=True,
+        rock=((0.20, 0.16, 0.12), (0.40, 0.33, 0.24)), sand=((0.44, 0.29, 0.14), (0.60, 0.41, 0.21)),
+        dust=((0.45, 0.34, 0.21), (0.57, 0.44, 0.27)), scrub_ground=(0.30, 0.29, 0.13), scrub_k=0.45, cumulus=True, stone_detail=True, textures=True, filtered_joints=True, worksite=True, wakes=True,
         wave_dir=-67.6,   # wind waves run with the Etesian NNW (towards SSE), like smoke, pennants and sails
         hop_desync=True,  # time-lapse jumps staggered per object
+        hdri=True,        # photographed day sky (fetch_hdri.py), when downloaded
         wet=(0.10, 0.09, 0.08),
         boulder=((0.18, 0.15, 0.12), (0.42, 0.36, 0.28)), boulder_wet=(0.08, 0.07, 0.06),
         water=((0.004, 0.040, 0.070), (0.025, 0.19, 0.18)), foam=(0.80, 0.83, 0.82),
@@ -496,6 +497,41 @@ def PAL_CUMULUS():
     return bool(P.get('cumulus'))
 
 
+HDRI_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'assets', 'hdri')
+
+
+def hdri_available():
+    return bool(P.get('hdri')) and os.path.exists(os.path.join(HDRI_DIR, 'manifest.json'))
+
+
+def hdri_sky(nb, D, dz, sky, sun_glow):
+    """Blend in the photographed day sky (fetch_hdri.py: sun removed).  Our own
+    sun disc and glow stay on top, so light and shadows keep following the
+    film's clock; 'hdri_rot' turns the sky (drifting clouds), 'hdri_k' fades it
+    in by day and out towards dusk, 'hdri_tint' warms it when the sun is low."""
+    man = json.load(open(os.path.join(HDRI_DIR, 'manifest.json')))['day']
+    env = nb.new('ShaderNodeTexEnvironment', interpolation='Linear')
+    env.image = bpy.data.images.load(os.path.join(HDRI_DIR, man['file']))
+    rot = nb.value(0.0, 'hdri_rot')
+    c, s_ = nb.math('COSINE', rot), nb.math('SINE', rot)
+    dx, dy, dz2 = nb.sep(D)
+    rx = nb.math('SUBTRACT', nb.math('MULTIPLY', dx, c), nb.math('MULTIPLY', dy, s_))
+    ry = nb.math('ADD', nb.math('MULTIPLY', dx, s_), nb.math('MULTIPLY', dy, c))
+    nb.feed(env.inputs['Vector'], nb.comb(rx, ry, dz2))
+    # light of the hour: the photographed day sky is re-lit by the ratio of our sky's
+    # colours now to its colours at midday (zenith and horizon), so the same clouds
+    # turn golden at sunset and dark at night instead of being swapped
+    tz = nb.rgb((1.0, 1.0, 1.0), 'hdri_tint')
+    th = nb.rgb((1.0, 1.0, 1.0), 'hdri_tint_h')
+    up = nb.math('POWER', nb.math('MAXIMUM', dz2, 0.0), 0.3)
+    tint = nb.mix(up, th, tz)
+    hcol = nb.mix(1.0, env.outputs['Color'], tint, blend='MULTIPLY')
+    hcol = nb.mix(1.0, hcol, (0.36 / man['median_sky'],) * 3 + (1.0,), blend='MULTIPLY')
+    hcol = nb.mix(1.0, hcol, sun_glow, blend='ADD')
+    hk = nb.value(0.0, 'hdri_k')
+    return nb.mix(nb.math('MULTIPLY', hk, nb.smooth(-0.01, 0.03, dz)), sky, hcol)
+
+
 def build_world():
     w = bpy.data.worlds.new('Sky')
     w.use_nodes = True
@@ -556,11 +592,11 @@ def build_world():
             nb.feed(vo.inputs['Vector'], Qw)
             vo.inputs['Scale'].default_value = 0.36
             vo.inputs['Randomness'].default_value = 0.9
-            present = nb.smooth(nb_cover_lo, nb_cover_lo + 0.05, nb.sep(vo.outputs['Color'])[0])
+            lo_ = nb.math('SUBTRACT', 0.62, nb.math('MULTIPLY', cover, 0.55))     # more cells carry a cloud
+            present = nb.smooth(0.0, 0.05, nb.math('SUBTRACT', nb.sep(vo.outputs['Color'])[0], lo_))
             puff = nb.math('MULTIPLY', nb.smooth(0.62, 0.18, vo.outputs['Distance']), present)
             fine = nb.noise(Q, 1.6, 6.0, 0.62).outputs['Fac']
             return nb.smooth(0.25, 0.55, nb.math('MULTIPLY', puff, nb.math('ADD', -0.1, nb.math('MULTIPLY', fine, 1.7))))
-        nb_cover_lo = 0.42
         nz1 = puffs(Pc)
         nz2 = puffs(P2)
         dens = nb.math('MULTIPLY', nz1, nb.math('ADD', 0.5, nb.math('MULTIPLY', cover, 2.0)), clamp=True)
@@ -581,6 +617,8 @@ def build_world():
     # fade the deck into the horizon haze
     hfade = nb.math('POWER', nb.math('MINIMUM', nb.math('MULTIPLY', up, 5.0), 1.0), 0.7)
     sky = nb.mix(nb.math('MULTIPLY', dens, hfade), sky, ccol)
+    if hdri_available():
+        sky = hdri_sky(nb, D, dz, sky, nb.mix(gl, (0.0, 0.0, 0.0, 1.0), glow))
     aov = nb.new('ShaderNodeOutputAOV')
     aov.aov_name = 'clouds'
     nb.feed(aov.inputs['Value'], nb.math('MULTIPLY', dens, hfade))
@@ -2525,6 +2563,13 @@ def pose(S, t, **kw):
     nt['cloud_gain'].outputs[0].default_value = kw.get('cloud_gain', 3.2)
     nt['moon'].outputs[0].default_value = 6.0 * night * moon_k
     nt['sun_disc'].outputs[0].default_value = 30.0 * TL.smoothstep(-1.0, 1.0, el_deg)
+    if 'hdri_k' in nt:
+        nt['hdri_k'].outputs[0].default_value = kw.get('hdri', 0.0)
+        nt['hdri_rot'].outputs[0].default_value = kw.get('hdri_rot', 0.0)
+        zd, hd = sky_palette(45.0, S.look)[:2]
+        w = 0.5 + 0.5 * TL.smoothstep(3.0, -3.0, el_deg)       # half the warmth by day, all of the dark by night
+        for name, now, day_ in (('hdri_tint', zen, zd), ('hdri_tint_h', hor, hd)):
+            nt[name].outputs[0].default_value = tuple((n / d) ** w for n, d in zip(now, day_)) + (1.0,)
     nt['cover'].outputs[0].default_value = kw.get(
         'cover', 0.6 + 0.1 * math.sin(t * 0.37) - 0.16 * TL.smoothstep(24.0, 27.0, t))
 
