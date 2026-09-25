@@ -11,6 +11,9 @@ NAME="${NAME:-wunderfilm_04_lighthouse}"
 OUTDIR="${OUTDIR:-$HERE/game_films}"
 mkdir -p "$BUILD/png" "$BUILD/png_stab" "$OUTDIR"
 
+# the photographed day sky (CC0, ~20 MB, not in git)
+ls "$HERE"/assets/hdri/*_nosun.hdr > /dev/null 2>&1 || "$PY" "$HERE/fetch_hdri.py"
+
 # render: two processes with two threads each (even / odd frames)
 "$PY" "$HERE/render.py" --film lighthouse20 --out "$BUILD" --no-lines --threads 2 \
   --frames "$(seq -s, 0 2 479)" "$@" &

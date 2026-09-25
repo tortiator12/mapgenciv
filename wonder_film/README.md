@@ -93,6 +93,22 @@ and only adds detail, so the palette keeps the colours. Close shots also get a
 treadwheel-driven quay crane, planked stone lighters, and people with tunics,
 belts, hair or head cloths, and baskets.
 
+The look follows the game's other wonder films (painted, but realistic): a
+photographed day sky full of cumulus (CC0, Poly Haven; `fetch_hdri.py`
+downloads it and removes its sun, because our own sun lamp keeps lighting the
+scene by the film's clock). The sky is re-lit by the ratio of our sky colours
+at the current hour to midday, so in the time-lapse the same clouds turn
+golden at sunset, dark at night and pink at dawn. Materials are warm (cream
+limestone, ochre ground), the quay is shot at an early golden hour, and
+`stylize.py` grades in Lab (warm shift per shot, calmer blues, S-curve,
+clarity) with a fixed painted-canvas grain. The night shot keeps its colours.
+
+The worst flicker came from the scene build itself: every block, pole and
+plank drew its colour tone from an unseeded random generator, and since even
+and odd frames are rendered by two processes, every stone changed its shade
+12 times a second. Tones are now hashed from the element's index; a frame
+renders bit-identically in any process.
+
 Against flicker: Cycles does not mip-map image textures, so every texture has
 pre-filtered 256 px and 64 px copies and the material picks the level from
 the pixel footprint (distance × pixel angle). Mortar joints, cart ruts, stone
