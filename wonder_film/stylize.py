@@ -335,6 +335,7 @@ WONDER = dict(warm={'S1': (0.8, 4.5), 'S2': (0.6, 4.5), 'S3': (0.4, 3.0), 'S4': 
               gain={'S1': 0.92, 'S2': 0.94, 'S3': 0.95, 'S4': 0.98, 'S5': 1.0},
               blue_desat=0.08, warm_sat=0.06, contrast=5.0, pivot=0.48, mix=0.8, clarity=0.3, canvas=0.0)
 _CANVAS = {}
+DUST_HAZE = {'S1': 0.3, 'S2': 0.2, 'S3': 0.15, 'S4': 0.12}      # share of warm haze far off, by day
 
 
 def canvas_texture(h, w):
@@ -386,6 +387,11 @@ def stylize_paint(rgb, Z, ID, meta, exposure, frame, paint=True):
     fog = (1.0 - np.exp(-np.maximum(Zc - 300.0, 0.0) / 6000.0)) * (~sky)
     fog = np.clip(fog, 0, 0.6)[..., None].astype(np.float32)
     lin = rgb * (1 - fog) + fog_col[None, None, :] * fog
+    amount = DUST_HAZE.get(meta.get('shot', ''), 0.0) * day
+    if amount > 0:                        # warm dust and sea haze over a working island: depth, not glass
+        dh = amount * (1.0 - np.exp(-np.maximum(Zc - 30.0, 0.0) / 250.0)) * (~sky)
+        dust_col = fog_col * np.array([1.12, 1.0, 0.8], np.float32)
+        lin = lin * (1 - dh[..., None]) + dust_col[None, None, :] * dh[..., None]
     lin = lin * exposure
 
     star_k = TL.smoothstep(-7.0, -15.0, meta['sun_el']) * meta.get('stars', 1.0)

@@ -1019,6 +1019,14 @@ QUAY_SPOTS = dict(amphorae=(43.4, -102.6, 2.95, 0.0), jars=(31.0, -87.5, 2.95, m
                   baskets=(39.6, -79.5, 2.95, 0.0), coils=(38.3, -99.0, 2.95, 0.0),
                   levers=(35.8, -86.0, 2.95, math.pi / 2), awning=(36.8, -76.0, 2.95, 0.0))
 SIGNAL_POLE = (41.8, -65.0, 2.95, 7.0)
+QUAY_DEBRIS = dict(
+    chips=[(34.6, -80.6, 1.1, 60), (34.6, -77.3, 1.1, 60), (34.8, -70.3, 1.1, 60)],
+    edge_chips=[(29.6, 30.3, -99.0, -65.0, 60), (41.7, 42.3, -99.0, -65.0, 60), (25.3, 46.7, -107.8, -107.2, 40)],
+    straw=[(42.6, -93.5, 0.7, 30), (43.2, -101.2, 0.5, 20), (37.6, -78.8, 0.5, 14)],
+    shards=[(42.3, -101.9, 12)],
+    ropes=[(36.6, -94.8, 0.3, 1.8), (43.8, -104.6, 2.2, 1.5)],
+    sacks=[(38.6, -74.6, 0.4), (39.2, -74.9, 1.1), (38.9, -74.1, 2.0), (35.4, -74.4, -0.3)])
+MASONS = [(34.95, -80.6), (34.95, -77.3), (35.1, -70.3)]
 
 
 def build_signal_pole(S):
@@ -1042,6 +1050,7 @@ def build(res=(1280, 720)):
     build_ship(S)
     life.build(S, sys.modules[__name__])
     life.build_clutter(S, QUAY_SPOTS)
+    life.build_debris(S, QUAY_DEBRIS, QUAY_Z)
     life.build_site_dressing(S, ground_z)
     build_signal_pole(S)
     return S
@@ -1224,6 +1233,10 @@ def shot_S1(S, v):
     x, y, z, h = SIGNAL_POLE
     life.pose_pennants(S, [((x, y, z + h - 0.1), 2.4, 0.5, 0), ((tip.x, tip.y, tip.z + 0.2), 2.2, 0.45, 0)], v)
     life.pose_smoke(S, site_plumes(), 40.0 + v, cam[0])
+    # stone dust where the masons' chisels bite (in front of them, at the block face)
+    dust = [life.Plume((mx - 0.55, my, QUAY_Z + 0.75), n=4, life=1.6, rise=0.25, drift=0.35, size0=0.15, grow=0.4,
+                       dens=0.45, seed=j * 3.1) for j, (mx, my) in enumerate(MASONS)]
+    life.pose_smoke(S, dust, 50.0 + v, cam[0], pool=S.dust)
     meta.update(stars=0.0)
     return meta
 
@@ -1313,6 +1326,7 @@ def shot_S2(S, v):
     # sledge teams and ox carts on the tracks from the quay to the podium (time-lapse jumps)
     k = 0
     segs = []
+    dust_sources = []
     building = TL.PHASES['platform'][0] < tc < TL.PHASES['scaf2_down'][0]
     if day > 0.3 and building:
         for j, (a, b) in enumerate((((24.0, -56.0), (9.0, -33.0)), ((40.0, -50.0), (31.0, -33.0)))):
@@ -1320,11 +1334,13 @@ def shot_S2(S, v):
             x, y = a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f
             k, sg = sledge_team(S, j + 1, k, (x, y), math.atan2(b[1] - a[1], b[0] - a[0]), 7.0 * f + j)
             segs += sg
+            dust_sources.append((x, y))
         for j, (a, b) in enumerate((((34.0, -62.0), (14.0, -44.0)), ((32.0, -60.0), (44.0, -44.0)))):
             cs = math.floor(hop_t * 1.5 + 0.25 + 0.5 * j)
             f = G._hash2(np.int64(cs), np.int64(j), 37)
             hd = math.atan2(b[1] - a[1], b[0] - a[0]) + (math.pi if G._hash2(np.int64(cs), np.int64(j), 38) > 0.5 else 0)
             place_cart(S, j, (a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f), hd, 5.0 * f)
+            dust_sources.append((a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f))
         # harbour boats rowing past, and a crowd on the podium round the rising walls
         for kk, (x, y, hd, slot) in enumerate(water_spots(cam, hop_t * 1.5, 3, 90.0, 260.0, 11)):
             k = life.pose_skiff(S, sys.modules[__name__], kk, (x, y), hd, 7.3 * kk + 1.37 * slot, k, seed=kk)
@@ -1332,6 +1348,12 @@ def shot_S2(S, v):
     for i in range(k, len(S.people)):
         S.people[i].hide_render = True
     set_lines(S, segs)
+    if day > 0.3 and building:
+        haze = [life.Plume((x, y, ground_z(x, y) + 1.0), n=3, life=30.0, rise=0.15, drift=0.5, size0=18.0, grow=0.8,
+                           dens=0.16, seed=20 + j) for j, (x, y) in enumerate(((10.0, -42.0), (-30.0, -34.0), (36.0, -40.0)))]
+        tracks = [life.Plume((x, y, ground_z(x, y) + 0.3), n=4, life=4.0, rise=0.6, drift=1.8, size0=2.0, grow=1.6,
+                             dens=0.3, seed=40 + j) for j, (x, y) in enumerate(dust_sources)]
+        life.pose_smoke(S, haze + tracks, 300.0 + v * 4.0, cam[0], pool=S.dust)
     # pennants on the cranes working the walls
     mounts = []
     for idx in range(5):

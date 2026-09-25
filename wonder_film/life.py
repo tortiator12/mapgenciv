@@ -406,11 +406,11 @@ def pose_anchored(S, spots, t, lamp=0.0):
 
 
 # ================================================================= smoke
-def mat_smoke():
+def mat_smoke(name='Smoke', lo=(0.62, 0.60, 0.57), hi=(0.80, 0.78, 0.74)):
     """Billboard puff: Object colour = (density, glow, seed), Object alpha = age.
     Soft round falloff times evolving noise; diffuse + a little translucency, so
-    the sun, the beacon and the torches light it like real smoke."""
-    m, nb, out = SC.new_material('Smoke')
+    the sun, the beacon and the torches light it like real smoke (or dust)."""
+    m, nb, out = SC.new_material(name)
     tc = nb.new('ShaderNodeTexCoord')
     u, v, _ = nb.sep(tc.outputs['UV'])
     du, dv = nb.math('SUBTRACT', u, 0.5), nb.math('SUBTRACT', v, 0.5)
@@ -423,7 +423,7 @@ def mat_smoke():
     n1 = nb.noise(nb.comb(u, v, 0.0), 1.7, 4.0, 0.6, w=w, dims='4D').outputs['Fac']
     body = nb.smooth(0.22, 0.68, nb.math('ADD', n1, nb.math('MULTIPLY', fall, 0.3)))
     alpha = nb.math('MULTIPLY', nb.math('MULTIPLY', nb.math('POWER', fall, 0.7), body), dens, clamp=True)
-    col = nb.mix(nb.math('MULTIPLY', n1, 0.6), (0.62, 0.60, 0.57, 1), (0.80, 0.78, 0.74, 1))
+    col = nb.mix(nb.math('MULTIPLY', n1, 0.6), tuple(lo) + (1,), tuple(hi) + (1,))
     dif = nb.new('ShaderNodeBsdfDiffuse')
     nb.feed(dif.inputs['Color'], col)
     tr = nb.new('ShaderNodeBsdfTranslucent')
@@ -447,19 +447,22 @@ def mat_smoke():
     return m
 
 
-def build_smoke(S, n=150):
-    m = mat_smoke()
+def build_smoke(S, n=150, n_dust=70):
     V = np.array([[-0.5, -0.5, 0], [0.5, -0.5, 0], [0.5, 0.5, 0], [-0.5, 0.5, 0]])
     Q = np.array([[0, 1, 2, 3]])
-    me = SC.mesh_from_arrays('Puff', V, Q, uv=np.array([[0, 0], [1, 0], [1, 1], [0, 1]]), mats=[m])
-    S.smoke = []
-    for i in range(n):
-        o = SC.link(bpy.data.objects.new(f'Puff{i}', me))
-        o.pass_index = SC.PASS['props']
-        o.visible_shadow = False
-        o.visible_diffuse = False
-        o.hide_render = True
-        S.smoke.append(o)
+    uv = np.array([[0, 0], [1, 0], [1, 1], [0, 1]])
+    for attr, name, count, mat in (('smoke', 'Puff', n, mat_smoke()),
+                                   ('dust', 'Dust', n_dust, mat_smoke('Dust', (0.52, 0.42, 0.30), (0.70, 0.58, 0.42)))):
+        me = SC.mesh_from_arrays(name, V, Q, uv=uv, mats=[mat])
+        pool = []
+        for i in range(count):
+            o = SC.link(bpy.data.objects.new(f'{name}{i}', me))
+            o.pass_index = SC.PASS['props']
+            o.visible_shadow = False
+            o.visible_diffuse = False
+            o.hide_render = True
+            pool.append(o)
+        setattr(S, attr, pool)
 
 
 class Plume:
@@ -472,12 +475,14 @@ class Plume:
         self.wind = np.array([wind[0], wind[1], 0.0])
 
 
-def pose_smoke(S, plumes, clock, cam_loc):
+def pose_smoke(S, plumes, clock, cam_loc, pool=None):
+    """Place the puffs of `plumes` from `pool` (default: the smoke sprites)."""
+    pool = S.smoke if pool is None else pool
     cam = np.array(cam_loc, float)
     k = 0
     for pl in plumes:
         for i in range(pl.n):
-            if k >= len(S.smoke):
+            if k >= len(pool):
                 break
             f = (clock / pl.life + (i + 0.37 * pl.seed) / pl.n) % 1.0      # age fraction
             a = f * pl.life
@@ -487,7 +492,7 @@ def pose_smoke(S, plumes, clock, cam_loc):
                 + np.array([-pl.wind[1], pl.wind[0], 0]) * sway
             size = pl.size0 + pl.grow * a
             dens = pl.dens * smoothstep(0.0, 0.08, f) * (1.0 - f) ** 1.6
-            o = S.smoke[k]
+            o = pool[k]
             k += 1
             if dens < 0.01:
                 o.hide_render = True
@@ -507,7 +512,7 @@ def pose_smoke(S, plumes, clock, cam_loc):
             glow = pl.glow * math.exp(-h / 6.0)
             o.color = (dens, glow, (pl.seed * 0.137 + i * 0.0731) % 1.0, f)
             o.hide_render = False
-    for o in S.smoke[k:]:
+    for o in pool[k:]:
         o.hide_render = True
 
 
@@ -572,6 +577,8 @@ def mat_terracotta():
     geo = nb.new('ShaderNodeNewGeometry')
     n = nb.noise(geo.outputs['Position'], 3.0, 3.0, 0.5).outputs['Fac']
     col = nb.mix(nb.math('ADD', nb.math('MULTIPLY', n, 0.5), 0.1), (0.52, 0.24, 0.12, 1), (0.66, 0.40, 0.24, 1))
+    if SC.P.get('weathered'):                         # dusty jars, not fresh from the kiln
+        col = SC.weathering(nb, col, stone=False)
     b = SC.principled(nb, col, 0.75, 0.0, 0.35)
     nb.feed(out.inputs['Surface'], b.outputs[0])
     return m
@@ -704,7 +711,7 @@ def hide_all(S):
     hide_skiffs(S)
     hide_boats(S)
     pose_anchored(S, [], 0.0)
-    for o in S.smoke + S.pennants:
+    for o in S.smoke + S.dust + S.pennants:
         o.hide_render = True
     show_clutter(S, False)
     show_site_dressing(S, False)
@@ -765,3 +772,59 @@ def build_site_dressing(S, ground_z):
 def show_site_dressing(S, on):
     for o in getattr(S, 'site_dressing', []):
         o.hide_render = not on
+
+
+# ================================================================= litter on the quay
+SACK = [(0.0, 0.0), (0.26, 0.02), (0.31, 0.2), (0.3, 0.42), (0.22, 0.58), (0.08, 0.66), (0.0, 0.67)]
+
+
+def build_debris(S, spec, z0):
+    """What a working quay collects: stone chips round the masons and along the
+    edges, straw from the packing, shards of a broken jar, rope ends, sacks."""
+    rng = np.random.default_rng(83)
+    tb = G.HexBatch('debris')
+    for (x, y, r, n) in spec.get('chips', []):
+        for _ in range(n):
+            a, d = rng.uniform(0, 2 * math.pi), r * math.sqrt(rng.random())
+            sx, sy = rng.uniform(0.04, 0.16), rng.uniform(0.04, 0.12)
+            tb.add(G.box(x + d * math.cos(a), y + d * math.sin(a), z0 - 0.01, sx, sy, rng.uniform(0.02, 0.08),
+                         rng.uniform(0, math.pi)), mat=0, tone=rng.random())
+    for (x0, x1, y0, y1, n) in spec.get('edge_chips', []):
+        for _ in range(n):
+            tb.add(G.box(rng.uniform(x0, x1), rng.uniform(y0, y1), z0 - 0.01, rng.uniform(0.04, 0.12),
+                         rng.uniform(0.03, 0.1), rng.uniform(0.02, 0.06), rng.uniform(0, math.pi)), mat=0, tone=rng.random())
+    for (x, y, spread, n) in spec.get('straw', []):
+        for _ in range(n):
+            tb.add(G.box(x + rng.normal(0, spread), y + rng.normal(0, spread), z0 - 0.005, rng.uniform(0.2, 0.6),
+                         rng.uniform(0.04, 0.12), 0.015, rng.uniform(0, math.pi)), mat=1, tone=rng.random())
+    for (x, y, n) in spec.get('shards', []):
+        for _ in range(n):
+            tb.add(G.box(x + rng.normal(0, 0.35), y + rng.normal(0, 0.35), z0 - 0.005, rng.uniform(0.06, 0.18),
+                         rng.uniform(0.05, 0.11), 0.018, rng.uniform(0, math.pi)), mat=2, tone=rng.random())
+    for (x, y, hd, L) in spec.get('ropes', []):
+        pts = [(x + math.cos(hd) * L * t - math.sin(hd) * 0.25 * math.sin(7 * t), y + math.sin(hd) * L * t + math.cos(hd) * 0.25 * math.sin(7 * t))
+               for t in np.linspace(0, 1, 9)]
+        for (ax, ay), (bx, by) in zip(pts[:-1], pts[1:]):
+            tb.add(G.beam([ax, ay, z0 + 0.02], [bx, by, z0 + 0.02], 0.05), mat=3)
+    tb.finalize()
+    m_straw = SC.mat_simple('Straw', (0.62, 0.51, 0.27), 0.95)
+    m_pot = bpy.data.materials.get('Terracotta') or mat_terracotta()
+    o = SC.link(bpy.data.objects.new('Debris', SC.hex_mesh('Debris', tb, np.ones(len(tb.t_on), bool),
+                                                         [S.m_stone, m_straw, m_pot, S.m_rope])))
+    o.pass_index = SC.PASS['props']
+    parts = []
+    Vs, Fs = lathe(SACK, 10)
+    for (x, y, hd) in spec.get('sacks', []):
+        M = (Matrix.Translation((x, y, z0)) @ Matrix.Rotation(hd, 4, 'Z') @ Matrix.Diagonal((1.0, 0.72, 1.0, 1.0))
+             @ Matrix.Rotation(rng.uniform(-0.12, 0.12), 4, 'X'))
+        parts.append((transform(Vs, M), Fs, 0))
+    objs = [o]
+    if parts:
+        V, F, mi = merge(parts)
+        m_burlap = SC.mat_simple('Burlap', (0.50, 0.40, 0.27), 0.95)
+        so = SC.link(bpy.data.objects.new('Sacks', SC.mesh_from_arrays('Sacks', V, F, mats=[m_burlap], mat_idx=mi, smooth=True)))
+        so.pass_index = SC.PASS['props']
+        objs.append(so)
+    S.clutter = getattr(S, 'clutter', []) + objs
+    for ob in objs:
+        ob.hide_render = True

@@ -87,6 +87,7 @@ PALETTES = {
         wave_dir=-67.6,   # wind waves run with the Etesian NNW (towards SSE), like smoke, pennants and sails
         hop_desync=True,  # time-lapse jumps staggered per object
         hdri=True,        # photographed day sky (fetch_hdri.py), when downloaded
+        weathered=True,   # dust, stains, worn edges, wet stone and algae at the waterline
         wet=(0.10, 0.09, 0.08),
         boulder=((0.18, 0.15, 0.12), (0.42, 0.36, 0.28)), boulder_wet=(0.08, 0.07, 0.06),
         water=((0.004, 0.040, 0.070), (0.025, 0.19, 0.18)), foam=(0.80, 0.83, 0.82),
@@ -387,6 +388,52 @@ def joint_mask(nb, width=0.05):
     return nb.math('MULTIPLY', nb.math('SUBTRACT', 1.0, n.outputs[0]), nb.math('DIVIDE', width, w_eff))
 
 
+def face_edge_dist(nb):
+    """Distance (m) from the nearest edge of the current block face (UVs in metres)."""
+    uv = nb.new('ShaderNodeUVMap', uv_map='UVMap').outputs[0]
+    u, v, _ = nb.sep(uv)
+    w, h, _ = nb.sep(nb.attr('fsize').outputs['Vector'])
+    return nb.math('MINIMUM', nb.math('MINIMUM', u, nb.math('SUBTRACT', w, u)),
+                   nb.math('MINIMUM', v, nb.math('SUBTRACT', h, v)))
+
+
+def weathering(nb, col, stone=True):
+    """A working site is not clean: sand-coloured dust lies on every upward
+    face (and fills the joints there), rain and hands leave vertical stains,
+    arrises are worn and dirty, and near the sea the stone is wet with a band
+    of algae at the waterline.  Fine noise fades out once a pixel covers it."""
+    geo = nb.new('ShaderNodeNewGeometry')
+    wpos = geo.outputs['Position']
+    wx, wy, wz = nb.sep(wpos)
+    nz = nb.sep(geo.outputs['Normal'])[2]
+    up = nb.smooth(0.55, 0.9, nz)
+    far = nb.smooth(0.02, 0.08, pixel_footprint(nb))
+    dn = nb.noise(wpos, 0.55, 3.0, 0.6).outputs['Fac']
+    fine = nb.noise(wpos, 6.0, 2.0, 0.6).outputs['Fac']
+    fine = nb.mix(far, fine, 0.5, dtype='FLOAT')
+    dust = nb.math('MULTIPLY', nb.math('MULTIPLY', up, nb.smooth(0.26, 0.66, nb.math('ADD', dn, nb.math('MULTIPLY', fine, 0.3)))),
+                   0.72 if stone else 0.45)
+    col = nb.mix(dust, col, (0.60, 0.49, 0.34, 1))
+    # trodden, spilled-on patches: darker, uneven
+    tn = nb.noise(wpos, 1.3, 3.0, 0.65).outputs['Fac']
+    tread = nb.math('MULTIPLY', up, nb.smooth(0.56, 0.74, nb.math('ADD', tn, nb.math('MULTIPLY', fine, 0.2))))
+    col = nb.mix(nb.math('MULTIPLY', tread, 0.3), col, (0.30, 0.23, 0.15, 1), blend='MULTIPLY')
+    streak_n = nb.noise(nb.comb(nb.math('MULTIPLY', wx, 1.3), nb.math('MULTIPLY', wy, 1.3), nb.math('MULTIPLY', wz, 0.13)),
+                        2.5, 4.0, 0.62).outputs['Fac']
+    streak = nb.math('MULTIPLY', nb.math('SUBTRACT', 1.0, up), nb.smooth(0.52, 0.78, streak_n))
+    col = nb.mix(nb.math('MULTIPLY', streak, 0.38), col, (0.22, 0.17, 0.11, 1), blend='MULTIPLY')
+    if stone:
+        edge = nb.math('SUBTRACT', 1.0, nb.smooth(0.0, 0.14, face_edge_dist(nb)))
+        edge = nb.math('MULTIPLY', edge, nb.smooth(0.35, 0.65, nb.noise(wpos, 2.2, 3.0, 0.6).outputs['Fac']))
+        col = nb.mix(nb.math('MULTIPLY', edge, 0.45), col, (0.30, 0.24, 0.16, 1), blend='MULTIPLY')
+        wet = nb.smooth(1.0, 0.25, nb.math('ADD', wz, nb.math('MULTIPLY', dn, 0.4)))
+        col = nb.mix(nb.math('MULTIPLY', wet, 0.55), col, (0.35, 0.33, 0.30, 1), blend='MULTIPLY')
+        algae = nb.math('MULTIPLY', nb.smooth(0.55, 0.15, wz), nb.smooth(-0.6, -0.15, wz))
+        algae = nb.math('MULTIPLY', algae, nb.smooth(0.3, 0.6, nb.math('ADD', dn, nb.math('MULTIPLY', fine, 0.3))))
+        col = nb.mix(algae, col, (0.10, 0.13, 0.06, 1))
+    return col
+
+
 def mat_masonry(name, base, joint_col, var=0.09, width=0.05, grime=None):
     grime = P['grime'] if grime is None else grime
     m, nb, out = new_material(name)
@@ -415,6 +462,11 @@ def mat_masonry(name, base, joint_col, var=0.09, width=0.05, grime=None):
         tex = tex_sample(nb, 'stone', vec, detail=0.85, normal_uv='UVMap', normal_strength=0.9)
         colout = mul_col(nb, colout, tex[0])
     colj = nb.mix(j, colout, tuple(joint_col) + (1,))
+    if P.get('weathered'):
+        # sand, not mortar, shows in the joints of upward faces
+        upj = nb.smooth(0.55, 0.9, nb.sep(nb.new('ShaderNodeNewGeometry').outputs['Normal'])[2])
+        colj = nb.mix(nb.math('MULTIPLY', j, upj), colj, (0.52, 0.40, 0.26, 1))
+        colj = weathering(nb, colj)
     b = principled(nb, colj, rough=0.88, spec=0.35)
     if tex is not None:
         nb.feed(b.inputs['Roughness'], nb.math('ADD', 0.35, nb.math('MULTIPLY', tex[2], 0.6)))
@@ -468,6 +520,13 @@ def mat_wood(name, base, var=0.3, width=0.03, textured=True):
         tex = tex_sample(nb, 'timber', vec, detail=0.75, gray=True, normal_uv='UVMap', normal_strength=0.7)
         colout = mul_col(nb, colout, tex[0])
     colj = nb.mix(nb.math('MULTIPLY', j, 0.6), colout, (0.03, 0.02, 0.012, 1))
+    if P.get('weathered'):
+        # sun-bleached, silvering timber with dust on its upper faces
+        g = nb.math('ADD', nb.math('MULTIPLY', nb.sep(colj)[0], 0.3), nb.math('MULTIPLY', nb.sep(colj)[1], 0.6))
+        grey = nb.comb(g, g, nb.math('MULTIPLY', g, 0.95))
+        wn = nb.noise(nb.new('ShaderNodeNewGeometry').outputs['Position'], 0.8, 3.0, 0.6).outputs['Fac']
+        colj = nb.mix(nb.math('MULTIPLY', nb.smooth(0.35, 0.75, wn), 0.35), colj, grey)
+        colj = weathering(nb, colj, stone=False)
     b = principled(nb, colj, rough=0.85, spec=0.3)
     if tex is not None:
         nb.feed(b.inputs['Normal'], tex[1])
@@ -1602,7 +1661,8 @@ def build_quay_blocks(pb, rng):
                 w = rng.uniform(1.6, 2.4)
                 a, b = max(x, x0), min(x + w, x1)
                 if b - a > 0.2:
-                    pb.add(G.quad_slab([(a, y), (b, y), (b, y + h), (a, y + h)], 2.78, 2.95), mat=3,
+                    top = 2.95 + (rng.uniform(-0.015, 0.01) if P.get('weathered') else 0.0)   # slabs settle unevenly
+                    pb.add(G.quad_slab([(a, y), (b, y), (b, y + h), (a, y + h)], 2.78, top), mat=3,
                            tone=rng.random())
                 x += w
             y += h
