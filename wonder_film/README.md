@@ -103,6 +103,14 @@ limestone, ochre ground), the quay is shot at an early golden hour, and
 `stylize.py` grades in Lab (warm shift per shot, calmer blues, S-curve,
 clarity) with a fixed painted-canvas grain. The night shot keeps its colours.
 
+And a working site is not clean: every upward stone face carries
+sand-coloured dust (and sand in its joints), trodden darker patches and
+vertical stains mark the walls, arrises are worn and dirty, the harbour
+walls are wet with a band of algae at the waterline, timber silvers, jars
+are dusty, the quay slabs have settled unevenly and collect chips, straw,
+shards and rope ends; stone dust rises at the masons' chisels and behind the
+sledges and carts, and a warm haze lies over the island by day.
+
 The worst flicker came from the scene build itself: every block, pole and
 plank drew its colour tone from an unseeded random generator, and since even
 and odd frames are rendered by two processes, every stone changed its shade
