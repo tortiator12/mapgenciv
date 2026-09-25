@@ -83,7 +83,7 @@ PALETTES = {
         wood=(0.50, 0.36, 0.22), plank=(0.60, 0.47, 0.31), rope=(0.34, 0.27, 0.17),
         cloth=(0.80, 0.74, 0.62), cloth2=(0.62, 0.30, 0.16), hull=(0.26, 0.17, 0.10), sail=(0.86, 0.79, 0.65),
         rock=((0.20, 0.16, 0.12), (0.40, 0.33, 0.24)), sand=((0.42, 0.30, 0.17), (0.58, 0.43, 0.26)),
-        dust=((0.44, 0.35, 0.23), (0.56, 0.45, 0.30)), scrub_ground=(0.30, 0.29, 0.13), scrub_k=0.45, cumulus=True, stone_detail=True, textures=True, filtered_joints=True,
+        dust=((0.44, 0.35, 0.23), (0.56, 0.45, 0.30)), scrub_ground=(0.30, 0.29, 0.13), scrub_k=0.45, cumulus=True, stone_detail=True, textures=True, filtered_joints=True, worksite=True,
         wet=(0.10, 0.09, 0.08),
         boulder=((0.18, 0.15, 0.12), (0.42, 0.36, 0.28)), boulder_wet=(0.08, 0.07, 0.06),
         water=((0.004, 0.040, 0.070), (0.025, 0.19, 0.18)), foam=(0.80, 0.83, 0.82),
@@ -682,6 +682,54 @@ def mainland_height(X, Y):
                     -6 + 0 * X)
 
 
+# ------------------------------------------------------------ worked ground
+WS_X0, WS_Y0, WS_SPAN, WS_N = -130.0, -130.0, 240.0, 1536
+WS_TRACKS = [  # (polyline, width m, ruts): beaten tracks between the quay, the stacks, the camp and the podium
+    ([(38, -64), (30, -54), (16, -40), (6, -31)], 4.5, True),
+    ([(38, -64), (42, -50), (36, -36), (30, -30)], 3.6, True),
+    ([(-58, -8), (-44, -10), (-31, -6)], 3.6, False),
+    ([(-38, -40), (-30, -30)], 3.0, False), ([(-44, 8), (-31, 6)], 3.0, False), ([(46, 40), (31, 27)], 3.0, False),
+    ([(22, -54), (14, -36)], 3.0, False), ([(-20, -52), (-12, -31)], 3.0, False), ([(-28, -50), (-22, -40)], 2.5, False),
+    ([(-62, -26), (-58, -8), (-64, 26)], 2.6, False),
+]
+WS_STACKS = [(-38, -40), (-44, 8), (40, -46), (22, -54), (-20, -52), (46, 40)]
+
+
+def _seg_dist(X, Y, a, b):
+    ax, ay = a
+    bx, by = b
+    dx, dy = bx - ax, by - ay
+    t = np.clip(((X - ax) * dx + (Y - ay) * dy) / max(dx * dx + dy * dy, 1e-9), 0, 1)
+    return np.hypot(X - (ax + t * dx), Y - (ay + t * dy))
+
+
+def worksite_image():
+    """R: beaten tracks, G: stone chips and dust from the masons, B: cart ruts."""
+    n = WS_N
+    c = WS_X0 + (np.arange(n) + 0.5) * WS_SPAN / n
+    X, Y = np.meshgrid(c, WS_Y0 + (np.arange(n) + 0.5) * WS_SPAN / n)      # row 0 = south
+    path = np.zeros((n, n), np.float32)
+    ruts = np.zeros((n, n), np.float32)
+    wob = 0.8 * G.fbm(X / 9.0, Y / 9.0, 3, seed=61)
+    for pts, w, has_ruts in WS_TRACKS:
+        d = np.full((n, n), 1e9, np.float32)
+        for a, b in zip(pts[:-1], pts[1:]):
+            d = np.minimum(d, _seg_dist(X, Y, a, b))
+        path = np.maximum(path, np.clip(1.0 - (d + wob - 0.5 * w) / 1.6, 0, 1))
+        if has_ruts:                                   # two wheel ruts 1.6 m apart (the carts' track)
+            ruts = np.maximum(ruts, np.clip(1.0 - np.abs(d - 0.8) / 0.22, 0, 1))
+    dp = np.maximum(np.abs(X), np.abs(Y)) - PLAT_A[0]
+    chips = np.where(dp > 0, np.exp(-(dp / 6.0) ** 2), 0.0)
+    for (sx, sy) in WS_STACKS:
+        chips = np.maximum(chips, np.exp(-((np.hypot(X - sx, Y - sy)) / 6.5) ** 2))
+    chips = chips * np.clip(0.6 + 0.8 * G.fbm(X / 6.0, Y / 6.0, 3, seed=62), 0, 1)
+    img = bpy.data.images.new('Worksite', n, n, alpha=True, float_buffer=False)
+    img.colorspace_settings.name = 'Non-Color'
+    px = np.stack([path, chips, ruts, np.ones_like(path)], -1).astype(np.float32)
+    img.pixels.foreach_set(px.ravel())
+    return img
+
+
 def mat_terrain():
     m, nb, out = new_material('Terrain')
     geo = nb.new('ShaderNodeNewGeometry')
@@ -707,6 +755,27 @@ def mat_terrain():
     wet = nb.smooth(1.6, 0.2, z)
     col = nb.mix(nb.math('MULTIPLY', wet, 0.75), col, P['wet'] + (1,))
     relief = nb.noise(pos, 1.6, 3.0, 0.6).outputs['Fac']
+    if P.get('worksite'):          # beaten tracks, cart ruts, stone chips round the podium and the stacks
+        tex = nb.new('ShaderNodeTexImage')
+        tex.image = worksite_image()
+        tex.extension = 'CLIP'
+        tex.interpolation = 'Linear'
+        nb.feed(tex.inputs['Vector'], nb.comb(nb.math('DIVIDE', nb.math('SUBTRACT', x_, WS_X0), WS_SPAN),
+                                              nb.math('DIVIDE', nb.math('SUBTRACT', y_, WS_Y0), WS_SPAN), 0.0))
+        tr, ch, ru = nb.sep(tex.outputs['Color'])
+        brk = nb.noise(pos, 0.45, 3.0, 0.6).outputs['Fac']
+        pm = nb.math('MULTIPLY', nb.smooth(0.2, 0.8, nb.math('ADD', tr, nb.math('MULTIPLY', nb.math('SUBTRACT', brk, 0.5), 0.5))), flat)
+        col = nb.mix(nb.math('MULTIPLY', pm, 0.72), col, (0.33, 0.26, 0.18, 1))
+        ru = nb.math('MULTIPLY', ru, nb.smooth(0.25, 0.08, pixel_footprint(nb)))     # thin ruts fade out far away
+        col = nb.mix(nb.math('MULTIPLY', nb.math('MULTIPLY', ru, flat), 0.35), col, (0.26, 0.20, 0.13, 1))
+        # chips: fine bright flecks that fade to their mean tone once a pixel covers them
+        fl = nb.noise(pos, 7.0, 2.0, 0.5).outputs['Fac']
+        fine = nb.smooth(0.5, 0.66, fl)
+        far = nb.smooth(0.03, 0.12, pixel_footprint(nb))
+        fleck = nb.mix(far, fine, 0.35, dtype='FLOAT')
+        cm = nb.math('MULTIPLY', nb.math('MULTIPLY', ch, flat), nb.math('ADD', 0.25, nb.math('MULTIPLY', fleck, 0.75)))
+        col = nb.mix(nb.math('MULTIPLY', cm, 0.8), col, (0.70, 0.64, 0.53, 1))
+        relief = nb.math('ADD', relief, nb.math('MULTIPLY', nb.math('SUBTRACT', ru, pm), 0.25))
     if use_textures():
         t1 = tex_sample(nb, 'sand', pos, detail=0.7)
         pos2 = nb.vmath('ADD', nb.comb(nb.math('MULTIPLY', y_, 0.37), nb.math('MULTIPLY', x_, -0.37), 0.0), (13.1, 7.7, 0.0))
@@ -759,7 +828,6 @@ def shore_foam_image():
     px[..., 1] = np.exp(-d / 25.0) * (~land)
     px[..., 3] = 1
     img.pixels.foreach_set(px.ravel())
-    img.pack()
     return img, (x0, x1, y0, y1)
 
 

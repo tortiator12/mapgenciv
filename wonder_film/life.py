@@ -684,3 +684,61 @@ def hide_all(S):
     for o in S.smoke + S.pennants:
         o.hide_render = True
     show_clutter(S, False)
+    show_site_dressing(S, False)
+
+
+# ================================================================= the working site
+SHEDS = [(-48.0, -28.0, 0.3), (44.0, -22.0, -0.2), (-30.0, 40.0, 0.1), (30.0, 42.0, -0.4)]
+RUBBLE = [(-36.0, -34.0, 3.6), (-35.0, 36.0, 3.0), (24.0, 38.0, 2.8), (38.0, -24.0, 3.2)]
+MORTAR = [(-4.0, -42.0), (-40.0, -18.0)]
+
+
+def build_site_dressing(S, ground_z):
+    """Masons' sheds (posts and a reed roof), heaps of stone chips, lime-mortar pits."""
+    tb = G.HexBatch('site')
+    rng = np.random.default_rng(71)
+    for (x, y, rot) in SHEDS:
+        z = ground_z(x, y)
+        c, s = math.cos(rot), math.sin(rot)
+        for ax in (-2.5, 0.0, 2.5):
+            for ay in (-1.75, 1.75):
+                px, py = x + ax * c - ay * s, y + ax * s + ay * c
+                tb.add(G.beam([px, py, z - 0.2], [px, py, z + 2.5 + 0.25 * (ay > 0)], 0.16), mat=0)
+        for ay in (-1.75, 1.75):
+            p0 = [x - 2.7 * c - ay * s, y - 2.7 * s + ay * c, z + 2.5 + 0.25 * (ay > 0)]
+            p1 = [x + 2.7 * c - ay * s, y + 2.7 * s + ay * c, z + 2.5 + 0.25 * (ay > 0)]
+            tb.add(G.beam(p0, p1, 0.14), mat=0)
+        roof = [(-2.9, -2.0), (2.9, -2.0), (2.9, 2.0), (-2.9, 2.0)]
+        q = [(x + ax * c - ay * s, y + ax * s + ay * c) for ax, ay in roof]
+        tb.add(G.quad_slab(q, z + 2.62, z + 2.74), mat=1)
+        for j in range(3):                                         # a block being dressed under it
+            tb.add(G.box(x + (j - 1) * 1.6 * c, y + (j - 1) * 1.6 * s, z - 0.1, 1.2, 0.8, 0.75, rot), mat=2,
+                   tone=rng.random())
+    tb.finalize()
+    S.m_reed = SC.mat_simple('Reed', (0.60, 0.49, 0.29), 0.95)
+    o = SC.link(bpy.data.objects.new('Sheds', SC.hex_mesh('Sheds', tb, np.ones(len(tb.t_on), bool),
+                                                         [S.m_wood, S.m_reed, S.m_stone])))
+    o.pass_index = SC.PASS['props']
+    parts = []
+    for (x, y, r) in RUBBLE:                                      # conical heaps of chips
+        z = ground_z(x, y)
+        prof = [(0.0, -0.2), (r, -0.2), (r * 0.8, 0.25 * r * 0.35), (r * 0.45, 0.7 * r * 0.35), (0.0, r * 0.35)]
+        V, F = lathe(prof, 14)
+        V = V + [x, y, z]
+        V[:, 2] += 0.08 * np.sin(V[:, 0] * 3.1) * np.cos(V[:, 1] * 2.7)
+        parts.append((V, F, 0))
+    for (x, y) in MORTAR:                                         # a low ring wall round white lime
+        z = ground_z(x, y)
+        V, F = lathe([(0.0, 0.05), (1.6, 0.05), (1.9, 0.35), (2.2, 0.35), (2.3, -0.2)], 16)
+        parts.append((V + [x, y, z], F, 1))
+    V, F, mi = merge(parts)
+    m_lime = SC.mat_simple('Lime', (0.74, 0.72, 0.66), 0.8)
+    h = SC.link(bpy.data.objects.new('Heaps', SC.mesh_from_arrays('Heaps', V, F, mats=[S.m_stone, m_lime], mat_idx=mi,
+                                                                  smooth=True)))
+    h.pass_index = SC.PASS['props']
+    S.site_dressing = [o, h]
+
+
+def show_site_dressing(S, on):
+    for o in getattr(S, 'site_dressing', []):
+        o.hide_render = not on

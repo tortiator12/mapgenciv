@@ -1042,6 +1042,7 @@ def build(res=(1280, 720)):
     build_ship(S)
     life.build(S, sys.modules[__name__])
     life.build_clutter(S, QUAY_SPOTS)
+    life.build_site_dressing(S, ground_z)
     build_signal_pole(S)
     return S
 
@@ -1214,6 +1215,7 @@ def shot_S1(S, v):
     place_cart(S, 1, (38.5, -56.5), math.radians(100), 0.0)
     pose_gulls(S, v, (44.0, -88.0), 10)
     life.show_clutter(S, True)
+    life.show_site_dressing(S, True)
     S.pole.hide_render = False
     x, y, z, h = SIGNAL_POLE
     life.pose_pennants(S, [((x, y, z + h - 0.1), 2.4, 0.5, 0), ((tip.x, tip.y, tip.z + 0.2), 2.2, 0.45, 0)], v)
@@ -1293,6 +1295,7 @@ def shot_S2(S, v):
                    cloud_gain=7.0, shadow_cover=0.3, moon=0.0, crane5_loc=QUAY_CRANE, statue_yaw=STATUE_YAW,
                    cam=cam, crowd=2.5)
     dress_workers(S, hop_t)
+    life.show_site_dressing(S, tc < TL.PHASES['scaf2_down'][1])
     day = meta['day']
     # smoke from the camp and the smithy (faster in the time-lapse); coasting boats offshore
     plumes = site_plumes() if day > 0.3 else []
