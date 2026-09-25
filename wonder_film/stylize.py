@@ -321,7 +321,7 @@ def stylize(rgb, Z, ID, L, meta, exposure, frame, params=None):
 
 
 PAINT_K = 0.35        # share of the Kuwahara paint in the 'paint' look (was 0.55: it ate detail)
-PAINT_SHARP = 0.6
+PAINT_SHARP = 0.4     # stronger sharpening amplified render noise (flicker)
 
 
 def unsharp(img, sigma, amount):
@@ -393,10 +393,7 @@ def stylize_paint(rgb, Z, ID, meta, exposure, frame, paint=True):
     yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
     rr = np.hypot((xx - W / 2) / (W / 2), (yy - H / 2) / (H / 2)) / math.sqrt(2)
     disp = disp * (1.0 - 0.22 * rr ** 2.4)[..., None]
-    rng = np.random.default_rng(frame * 7 + 1)
-    g = cv2.GaussianBlur(rng.normal(0, 1, (H, W)).astype(np.float32), (0, 0), 0.6 * s)
-    disp = disp + g[..., None] * 0.01
-    return np.clip(disp, 0, 1)
+    return np.clip(disp, 0, 1)            # no per-frame grain: it read as flicker
 
 
 def main():
@@ -429,6 +426,7 @@ def main():
                               shots=[sorted(set(shots)).index(s) for s in shots])
     else:   # sparse previews: no temporal smoothing
         expo = [exposure_target(dd, args.look) / keys[str(f)] for f, dd in zip(frames, days)]
+    expo = [e * m.get('expo_mul', 1.0) for e, m in zip(expo, metas_all)]
     todo = frames if args.frames is None else [f for f in frames if str(f) in args.frames.split(',')]
     for f in todo:
         rgb, Z, ID, L, meta = load(args.inp, f)

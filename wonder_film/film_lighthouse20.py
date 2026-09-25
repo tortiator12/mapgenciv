@@ -12,12 +12,14 @@ day, animation) and adds what only it needs: walking people, ox carts, gulls,
 the hero ship.  No text in the picture; the game shows the titles.
 """
 import math
+import sys
 
 import bpy
 import numpy as np
 from mathutils import Matrix, Vector
 
 import geometry as G
+import life
 import scene as SC
 import timeline as TL
 
@@ -111,7 +113,7 @@ def bake(name, J, E, R, mat, subsurf=2, skin=None, extra=None):
     return SC.mesh_from_arrays(name, V, Q, face_attrs={'region': ('FLOAT', reg)}, mats=[mat], smooth=True)
 
 
-R_TUNIC, R_SKIN, R_HAIR, R_BEARD, R_BELT, R_SANDAL, R_BASKET = range(7)
+R_TUNIC, R_SKIN, R_HAIR, R_BEARD, R_BELT, R_SANDAL, R_BASKET, R_POT, R_WOOD = range(9)
 BONES = [(0, 1), (1, 2), (0, 18), (2, 3), (2, 4), (4, 5), (5, 6), (2, 7), (7, 8), (8, 9),
          (0, 10), (10, 11), (11, 12), (12, 13), (0, 14), (14, 15), (15, 16), (16, 17), (3, 19)]
 
@@ -162,7 +164,8 @@ def mat_person():
     tunic = oi.outputs['Color']
     col = tunic
     for k, c in ((R_SKIN, skin), (R_HAIR, hair), (R_BEARD, beard), (R_BELT, (0.13, 0.075, 0.04, 1)),
-                 (R_SANDAL, sandal), (R_BASKET, (0.52, 0.39, 0.2, 1))):
+                 (R_SANDAL, sandal), (R_BASKET, (0.52, 0.39, 0.2, 1)), (R_POT, (0.55, 0.25, 0.12, 1)),
+                 (R_WOOD, (0.30, 0.20, 0.11, 1))):
         f = nb.math('COMPARE', reg, float(k), 0.5)
         col = nb.mix(f, col, c)
     b = SC.principled(nb, col, rough=0.85, spec=0.3)
@@ -246,7 +249,122 @@ def human_joints(mode, ph=0.0):
     return J
 
 
-def build_people(S, n_walk=12, n_haul=6):
+def _ik(root, target, l1, l2, pole):
+    """Two-bone IK: middle joint and (reach-clamped) end for root -> target."""
+    a = np.asarray(root, float)
+    d = np.asarray(target, float) - a
+    L = float(np.linalg.norm(d))
+    u = d / max(L, 1e-9)
+    L = min(L, (l1 + l2) * 0.999)
+    x = (l1 * l1 - l2 * l2 + L * L) / (2 * L)
+    r = math.sqrt(max(l1 * l1 - x * x, 0.0))
+    p = np.asarray(pole, float)
+    p = p - u * (p @ u)
+    p = p / max(np.linalg.norm(p), 1e-9)
+    return tuple(a + u * x + p * r), tuple(a + u * L)
+
+
+def figure_joints(pelvis, lean, ankles, hands, skirt=None, knee_pole=(0, 1, 0.2), turn=0.0):
+    """The 20 figure joints from a pelvis position, a forward lean (rad, towards
+    +y), ankle and hand targets (knees and elbows by IK).  Same layout as
+    human_joints, so the region painting (tunic, belt, hair...) still fits."""
+    px, py, pz = pelvis
+    cl, sl = math.cos(lean), math.sin(lean)
+
+    def up(h, x=0.0, y=0.0):         # a point h above the pelvis on the leaning trunk
+        return (px + x, py + y + h * sl, pz + h * cl)
+    J = [(px, py, pz), up(0.27), up(0.5), up(0.65, 0, 0.01)]
+    for s, hand in zip((-1, 1), hands):
+        sh = np.array(up(0.45, s * 0.19))
+        el, ha = _ik(sh, hand, 0.30, 0.28, (s * 0.5, -0.4, -1.0))
+        J += [tuple(sh), el, ha]
+    for s, ank in zip((-1, 1), ankles):
+        hip = (px + s * 0.1, py, pz - 0.05)
+        kn, an = _ik(hip, ank, 0.42, 0.42, (s * knee_pole[0] * 0.3 + knee_pole[0] * s, knee_pole[1], knee_pole[2]))
+        toe = (an[0], an[1] + 0.13, max(an[2] - 0.05, 0.02))
+        J += [hip, kn, an, toe]
+    J.append(skirt if skirt is not None else (px, py, pz - 0.33))
+    J.append(up(0.76, 0, 0.0))
+    return J
+
+
+def _walk_ankles(ph, stride=0.30, lift=0.10):
+    out = []
+    for s in (-1, 1):
+        psi = ph + (0 if s < 0 else math.pi)
+        out.append((s * 0.1, stride * math.sin(psi), 0.08 + lift * max(0.0, math.cos(psi))))
+    return out
+
+
+def action_joints(mode, ph=0.0):
+    """More trades on the site: drag (a rope over the shoulder), hammer (a mason
+    dressing a block), sit, scribe (cross-legged), point (an overseer),
+    shoulder (an amphora on the shoulder), pour (water under a sledge),
+    torch (walking with a torch held up)."""
+    bob = 0.025 * math.cos(2 * ph)
+    if mode == 'drag':
+        lean = 0.32
+        pel = (0, 0, 0.93 + bob)
+        c = (0.0, 0.33, 1.28 + bob)
+        return figure_joints(pel, lean, _walk_ankles(ph, 0.34, 0.09), [(c[0] - 0.08, c[1], c[2]), (c[0] + 0.1, c[1] + 0.06, c[2] + 0.1)])
+    if mode == 'hammer':
+        lean = 0.38
+        swing = 0.5 + 0.5 * math.cos(ph)
+        pel = (0, 0, 0.9)
+        return figure_joints(pel, lean, [(-0.16, 0.08, 0.08), (0.16, -0.12, 0.08)],
+                             [(-0.1, 0.55, 0.78), (0.14, 0.5 - 0.12 * swing, 0.86 + 0.5 * swing)])
+    if mode == 'sit':
+        pel = (0, 0, 0.47)
+        return figure_joints(pel, 0.12, [(-0.15, 0.5, 0.08), (0.15, 0.48, 0.08)],
+                             [(-0.16, 0.38, 0.55), (0.16, 0.38, 0.55)], skirt=(0, 0.22, 0.42),
+                             knee_pole=(0, 0.3, 1.0))
+    if mode == 'scribe':
+        pel = (0, 0, 0.2)
+        return figure_joints(pel, 0.18, [(0.14, 0.28, 0.07), (-0.14, 0.3, 0.07)],
+                             [(-0.12, 0.34, 0.42), (0.12, 0.36, 0.46)], skirt=(0, 0.2, 0.15),
+                             knee_pole=(1.0, 0.4, 0.3))
+    if mode == 'point':
+        return figure_joints((0, 0, 0.95), -0.04, [(-0.11, 0.02, 0.08), (0.12, -0.05, 0.08)],
+                             [(-0.26, 0.05, 0.93), (0.36, 0.58, 1.52)])
+    if mode == 'shoulder':
+        pel = (0, 0, 0.95 + bob)
+        hy = -0.2 * math.sin(ph)
+        return figure_joints(pel, 0.05, _walk_ankles(ph, 0.27, 0.09), [(-0.25, hy, 0.95 + bob), (0.24, 0.08, 1.62 + bob)])
+    if mode == 'pour':
+        return figure_joints((0, 0, 0.9), 0.42, [(-0.14, 0.12, 0.08), (0.15, -0.14, 0.08)],
+                             [(-0.14, 0.55, 0.82), (0.14, 0.5, 1.0)])
+    if mode == 'torch':
+        pel = (0, 0, 0.95 + bob)
+        hy = -0.2 * math.sin(ph)
+        return figure_joints(pel, 0.0, _walk_ankles(ph, 0.28, 0.09), [(-0.25, hy, 0.95 + bob), (0.26, 0.2, 1.62 + bob)])
+    raise ValueError(mode)
+
+
+def rower_joints(ph, side):
+    """A seated oarsman facing aft, hands on his oar's loom (see life.stroke)."""
+    hl, hr, lean = life.rower_targets(ph / (2 * math.pi), side)
+    return figure_joints((0, 0, 0.45), lean, [(-0.15, 0.62, 0.1), (0.15, 0.62, 0.1)], [hl, hr],
+                         skirt=(0, 0.2, 0.42), knee_pole=(0, 0.3, 1.0))
+
+
+def amphora_on(J, where):
+    """Amphora geometry for 'shoulder' (lying on the right shoulder) and 'pour' (in both hands)."""
+    Va, Fa = life.lathe(life.AMPHORA, 8)
+    if where == 'shoulder':
+        sh = np.array(J[7])
+        M = (Matrix.Translation(tuple(sh + np.array([0.02, -0.02, 0.2]))) @ Matrix.Rotation(math.radians(-70), 4, 'X')
+             @ Matrix.Translation((0, 0, -0.5)))
+    else:
+        c = 0.5 * (np.array(J[6]) + np.array(J[9]))
+        M = (Matrix.Translation(tuple(c + np.array([0, 0.05, -0.1]))) @ Matrix.Rotation(math.radians(115), 4, 'X')
+             @ Matrix.Translation((0, 0, -0.45)))
+    return life.transform(Va, M), [list(f) for f in Fa]
+
+
+ACTIONS = dict(drag=12, hammer=6, sit=1, scribe=1, point=1, shoulder=12, pour=1, torch=12)
+
+
+def build_people(S, n_walk=12, n_haul=6, n_people=170):
     m = mat_person()
     S.walk_meshes = [bake(f'Walk{k}', human_joints('walk', 2 * math.pi * k / n_walk), HUMAN_E, HUMAN_R, m, skin=True)
                      for k in range(n_walk)]
@@ -258,10 +376,28 @@ def build_people(S, n_walk=12, n_haul=6):
     S.haul_meshes = [bake(f'Haul{k}', human_joints('haul', 2 * math.pi * k / n_haul), HUMAN_E, HUMAN_R, m, skin=True)
                      for k in range(n_haul)]
     S.stand_mesh = bake('Stand', human_joints('stand'), HUMAN_E, HUMAN_R, m, skin=True)
+    S.pose_meshes = dict(walk=S.walk_meshes, carry=S.carry_meshes, haul=S.haul_meshes, stand=[S.stand_mesh])
+    for mode, n in ACTIONS.items():
+        meshes = []
+        for k in range(n):
+            J = action_joints(mode, 2 * math.pi * k / n)
+            extra = None
+            if mode in ('shoulder', 'pour'):
+                Va, Fa = amphora_on(J, mode)
+                extra = (Va, Fa, R_POT)
+            elif mode == 'torch':
+                hand = np.array(J[9])
+                st = G.beam(hand - [0.0, 0.02, 0.25], hand + [0.0, 0.03, 0.3], 0.05).reshape(-1, 3)
+                extra = (st, [[0, 1, 2, 3], [4, 7, 6, 5], [0, 4, 5, 1], [1, 5, 6, 2], [2, 6, 7, 3], [3, 7, 4, 0]], R_WOOD)
+            meshes.append(bake(f'{mode}{k}', J, HUMAN_E, HUMAN_R, m, skin=True, extra=extra))
+        S.pose_meshes[mode] = meshes
+    for side, key in ((1, 'row_p'), (-1, 'row_s')):
+        S.pose_meshes[key] = [bake(f'{key}{k}', rower_joints(2 * math.pi * k / 16, side), HUMAN_E, HUMAN_R, m, skin=True)
+                              for k in range(16)]
     S.people = []
     pal = SC.P['workers']
     rng = np.random.default_rng(12)
-    for i in range(24):
+    for i in range(n_people):
         o = SC.link(bpy.data.objects.new(f'Person{i}', S.stand_mesh))
         o.color = pal[(i * 5 + 1) % len(pal)] + (1.0,)
         o.pass_index = SC.PASS['worker']
@@ -273,14 +409,8 @@ def build_people(S, n_walk=12, n_haul=6):
 def place_person(S, i, loc, heading, mode='stand', ph=0.0):
     o = S.people[i]
     o.hide_render = False
-    if mode == 'walk':
-        o.data = S.walk_meshes[int(ph / (2 * math.pi) * len(S.walk_meshes)) % len(S.walk_meshes)]
-    elif mode == 'carry':
-        o.data = S.carry_meshes[int(ph / (2 * math.pi) * len(S.carry_meshes)) % len(S.carry_meshes)]
-    elif mode == 'haul':
-        o.data = S.haul_meshes[int(ph / (2 * math.pi) * len(S.haul_meshes)) % len(S.haul_meshes)]
-    else:
-        o.data = S.stand_mesh
+    meshes = S.pose_meshes[mode]
+    o.data = meshes[int(ph / (2 * math.pi) * len(meshes)) % len(meshes)]
     o.location = loc
     o.rotation_euler = (0, 0, heading - math.pi / 2)   # figure faces +y; heading is CCW from +x
     o.scale = (o.get('size', 1.0),) * 3
@@ -401,7 +531,7 @@ def build_gulls(S, n=7, n_pose=8):
         S.gulls.append(o)
 
 
-def pose_gulls(S, t, centre, n_show):
+def pose_gulls(S, t, centre, n_show, z0=0.0):
     rng = np.random.default_rng(5)
     for i, o in enumerate(S.gulls):
         if i >= n_show:
@@ -414,7 +544,7 @@ def pose_gulls(S, t, centre, n_show):
         a = a0 + w * t
         x = centre[0] + r * math.cos(a) + 3 * math.sin(0.7 * t + i)
         y = centre[1] + r * math.sin(a)
-        z = h + 1.2 * math.sin(0.9 * t + i * 1.7)
+        z = z0 + h + 1.2 * math.sin(0.9 * t + i * 1.7)
         head = a + (math.pi / 2 if w > 0 else -math.pi / 2)
         bank = math.copysign(math.radians(20), w)
         flap = (math.sin(0.8 * t + i * 2.3) > -0.1)
@@ -873,29 +1003,51 @@ def build_sledge(S):
         sb.add(G.beam([s, -1.2, 0.08], [s, 1.3, 0.12], 0.16, 0.16), mat=0)
     sb.add(G.box(0, 0, 0.2, 1.4, 2.0, 0.1), mat=0)
     sb.add(G.box(0, -0.1, 0.3, 1.1, 1.7, 0.9), mat=1)
-    for s in (-0.5, 0.5):                                    # hauling ropes to the team
-        sb.add(G.beam([s * 0.6, 1.3, 0.25], [s * 1.2, 4.9, 1.15], 0.035), mat=2)
     sb.finalize()
-    S.sledge = SC.link(bpy.data.objects.new('Sledge', SC.hex_mesh('Sledge', sb, np.ones(len(sb.t_on), bool),
-                                                                   [S.m_wood, S.m_stone, S.m_rope])))
-    S.sledge.pass_index = SC.PASS['props']
-    S.sledge.hide_render = True
+    me = SC.hex_mesh('Sledge', sb, np.ones(len(sb.t_on), bool), [S.m_wood, S.m_stone])
+    S.sledges = []
+    for i in range(3):
+        o = SC.link(bpy.data.objects.new(f'Sledge{i}', me))
+        o.pass_index = SC.PASS['props']
+        o.hide_render = True
+        S.sledges.append(o)
+    S.sledge = S.sledges[0]
+
+
+# where the quay's clutter lies (x, y, z, heading): clear of every path in S1
+QUAY_SPOTS = dict(amphorae=(43.4, -102.6, 2.95, 0.0), jars=(31.0, -87.5, 2.95, math.pi / 2),
+                  baskets=(39.6, -79.5, 2.95, 0.0), coils=(38.3, -99.0, 2.95, 0.0),
+                  levers=(35.8, -86.0, 2.95, math.pi / 2), awning=(36.8, -76.0, 2.95, 0.0))
+SIGNAL_POLE = (41.8, -65.0, 2.95, 7.0)
+
+
+def build_signal_pole(S):
+    x, y, z, h = SIGNAL_POLE
+    pb = G.HexBatch('pole')
+    pb.add(G.beam([x, y, z], [x, y, z + h], 0.16), mat=0)
+    pb.finalize()
+    S.pole = SC.link(bpy.data.objects.new('SignalPole', SC.hex_mesh('SignalPole', pb, np.ones(1, bool), [S.m_wood])))
+    S.pole.pass_index = SC.PASS['props']
+    S.pole.hide_render = True
 
 
 def build(res=(1280, 720)):
-    S = SC.build(res, look=LOOK, derrick=True)
+    S = SC.build(res, look=LOOK, derrick=True, n_workers=230)
     build_lighter(S)
     build_quay_crane(S)
     build_sledge(S)
     build_people(S)
     build_carts(S)
-    build_gulls(S)
+    build_gulls(S, n=12)
     build_ship(S)
+    life.build(S, sys.modules[__name__])
+    life.build_clutter(S, QUAY_SPOTS)
+    build_signal_pole(S)
     return S
 
 
 def hide_extras(S):
-    for o in S.people + S.gulls + [S.sledge, S.tread]:
+    for o in S.people + S.gulls + S.sledges + [S.tread, S.pole]:
         o.hide_render = True
     for c, wheels, oxen in S.carts:
         c.hide_render = True
@@ -905,19 +1057,89 @@ def hide_extras(S):
             o.hide_render = True
     for o in S.ship.values():
         o.hide_render = True
+    life.hide_all(S)
+
+
+def crane_tip(S, idx):
+    c = S.cranes[idx][0]
+    return c.matrix_world @ Vector(S.crane_tip_tall if idx == 4 else S.crane_tip)
 
 
 # ================================================================= shots
 QUAY_CRANE = (38.6, -92.0, 2.95)
 STATUE_YAW = math.radians(80.0)
+QUAY_Z = 2.95
+CAMP_FIRES = [(-58.0, -8.0), (-70.0, 12.0), (-52.0, 30.0)]
+SMITHY = (-28.0, -50.0)
+
+
+def site_plumes(fast=1.0):
+    """Cooking fires in the workers' camp and the smithy by the yard."""
+    pl = [life.Plume((x, y, ground_z(x, y) + 0.6), n=7, life=11.0, rise=0.9, drift=1.3, size0=1.0, grow=0.45,
+                     dens=0.6, seed=i) for i, (x, y) in enumerate(CAMP_FIRES)]
+    x, y = SMITHY
+    pl.append(life.Plume((x, y, ground_z(x, y) + 2.2), n=8, life=10.0, rise=1.3, drift=1.4, size0=0.8, grow=0.5,
+                         dens=0.8, seed=7))
+    return pl
+
+
+def place_walkers(S, k, walkers, v, z_of=None):
+    """(start (x, y), heading, speed, phase0, mode) walking in a straight line."""
+    for (x0, y0), hd, spd, ph0, mode in walkers:
+        dist = spd * v
+        x = x0 + math.cos(hd) * dist
+        y = y0 + math.sin(hd) * dist
+        z = z_of(x, y) if z_of else ground_z(x, y)
+        stride = 1.45 if mode in ('walk', 'carry', 'shoulder', 'torch') else 1.1
+        place_person(S, k, (x, y, z), hd, mode, ph0 + dist / stride * 2 * math.pi)
+        k += 1
+    return k
+
+
+def on_quay(x, y):
+    if (29.5 < x < 42.5 and -108 < y < -64) or (24.5 < x < 47.5 and -108.5 < y < -99.5):
+        return QUAY_Z
+    return ground_z(x, y)
+
+
+def sledge_team(S, idx, k, pos, heading, ph, z=None):
+    """Sledge idx with a block at pos, dragged towards `heading` by two ropes of
+    three men each, the rope over the right shoulder.  Returns (next person, rope segments)."""
+    sx, sy = pos
+    z = ground_z(sx, sy) if z is None else z
+    o = S.sledges[idx]
+    o.hide_render = False
+    o.location = (sx, sy, z)
+    o.rotation_euler = (0, 0, heading - math.pi / 2)
+    c, s_ = math.cos(heading - math.pi / 2), math.sin(heading - math.pi / 2)
+
+    def w(lx, ly, lz):                      # sledge-local (x right, y forward) -> world
+        return (sx + lx * c - ly * s_, sy + lx * s_ + ly * c, z + lz)
+    segs = []
+    for rx in (-0.6, 0.6):
+        pts = [w(rx * 0.5, 1.3, 0.25)]
+        for j, dy in enumerate((3.0, 4.2, 5.4)):
+            hx, hy, hz = w(rx - 0.19, dy, 0.0)
+            pj = ph + j * 2.1 + (1.0 if rx > 0 else 0.0)
+            place_person(S, k, (hx, hy, hz), heading, 'drag', pj)
+            k += 1
+            pts.append(w(rx, dy + 0.14, 1.42 + 0.025 * math.cos(2 * pj)))
+        last = pts[-1]
+        pts.append(w(rx, 5.4 + 0.84, 1.07))
+        segs += list(zip(pts[:-1], pts[1:]))
+    return k, segs
+
+
+S1_CAM0 = ((61.0, -113.0, 8.5), (41.5, -88.0, 5.0))
+S1_CAM1 = ((56.5, -116.0, 8.5), (38.5, -86.5, 5.0))
 
 
 def shot_S1(S, v):
-    """The quay, 08:00, real time."""
+    """The quay, 08:00, real time: a working morning."""
     u = v / 3.0
     hour = 8.0 + 0.25 * u
-    cam = (lerp3((61.0, -113.0, 8.5), (56.5, -116.0, 8.5), TL.ease_io(u)),
-           lerp3((37.5, -89.0, 5.0), (34.5, -87.5, 5.0), TL.ease_io(u)), 30.0)
+    e = TL.ease_io(u)
+    cam = (lerp3(S1_CAM0[0], S1_CAM1[0], e), lerp3(S1_CAM0[1], S1_CAM1[1], e), 30.0)
     meta = SC.pose(S, v, tc=0.95, hour=hour, life=v, hop_t=0.3, sea_t=40.0 + v, water_t=16.0 + 0.4 * v,
                    cloud_t=hour * 0.75, shadow_t=hour * 124.0, cover=0.02, cloud_gain=7.0, shadow_cover=0.3,
                    traffic=False, crane5_loc=QUAY_CRANE, statue_yaw=STATUE_YAW, cam=cam)
@@ -942,63 +1164,183 @@ def shot_S1(S, v):
     load.hide_render = rope.hide_render = False
     load.matrix_world = Matrix.Translation((tip.x + swing * 0.3, tip.y, lz)) @ Matrix.Rotation(slew, 4, 'Z')
     rope.matrix_world = Matrix.Translation(tip) @ Matrix.Diagonal((1, 1, tip.z - lz, 1))
-    # people: walkers on the jetty and the track, a crew at the crane and on the barge
-    k = 0
-    walkers = [((33.0, -100.0), math.radians(90), 1.25, 0.0, 'walk'), ((38.0, -70.0), math.radians(-90), 1.1, 1.0, 'carry'),
-               ((31.5, -80.0), math.radians(95), 1.3, 2.0, 'walk'), ((36.0, -60.0), math.radians(125), 1.1, 0.5, 'carry'),
-               ((24.0, -46.0), math.radians(130), 1.1, 1.5, 'walk'), ((41.0, -84.0), math.radians(-88), 1.2, 2.5, 'walk'),
-               ((29.0, -55.0), math.radians(-50), 1.1, 3.0, 'carry')]
-    for (x0, y0), hd, spd, ph0, mode in walkers:
-        dist = spd * v
-        x = x0 + math.cos(hd) * dist
-        y = y0 + math.sin(hd) * dist
-        z = 2.95 if (29.5 < x < 42.5 and -108 < y < -64) else ground_z(x, y)
-        place_person(S, k, (x, y, z), hd, mode, ph0 + dist / 1.45 * 2 * math.pi)
-        k += 1
+    # people on the jetty and the track
+    k = place_walkers(S, 0, [
+        ((30.8, -100.0), math.radians(90), 1.25, 0.0, 'walk'), ((38.0, -70.0), math.radians(-90), 1.1, 1.0, 'carry'),
+        ((31.5, -80.0), math.radians(95), 1.3, 2.0, 'walk'), ((36.0, -60.0), math.radians(125), 1.1, 0.5, 'carry'),
+        ((24.0, -46.0), math.radians(130), 1.1, 1.5, 'walk'), ((40.3, -84.0), math.radians(-90), 1.2, 2.5, 'walk'),
+        ((29.0, -55.0), math.radians(-50), 1.1, 3.0, 'carry'), ((39.6, -66.0), math.radians(-90), 1.0, 0.7, 'shoulder'),
+        ((44.5, -100.8), math.radians(180), 0.9, 2.2, 'shoulder')], v, on_quay)
     # two men walking in the treadwheel; the rope drum winds exactly the lifted length
     ang = lift / DRUM_R
     k = pose_treadwheel(S, ang, walkers=2, first_person=k, walk_ph=ang * (WHEEL_R - 0.06) / 1.45 * 2 * math.pi)
     # a guide line from the load to the man steadying it
     lb = load.matrix_world @ Vector((0.9, 0.0, -1.0))
-    set_lines(S, [((lb.x, lb.y, lb.z), (41.0, -95.2, 2.95 + 1.2))])
-    for (x, y, z, hd, mode) in ((41.0, -95.5, 2.95, math.radians(180), 'haul'), (39.2, -96.8, 2.95, math.radians(160), 'haul'),
-                                (46.4, -85.8, 1.3, math.radians(200), 'stand'), (48.8, -85.6, 1.3, math.radians(250), 'haul'),
-                                (35.5, -63.0, ground_z(35.5, -63.0), math.radians(40), 'stand')):
-        place_person(S, k, (x, y, z), hd, mode, 1.3 * v * 2 + k)
+    lines = [((lb.x, lb.y, lb.z), (41.0, -95.2, QUAY_Z + 1.2))]
+    busy = [(41.0, -95.5, QUAY_Z, 180, 'haul'), (39.2, -96.8, QUAY_Z, 160, 'haul'),
+            (46.4, -85.8, 1.3, 200, 'stand'), (48.8, -85.6, 1.3, 250, 'haul'), (46.2, -94.0, 1.3, 165, 'point'),
+            (35.5, -63.0, ground_z(35.5, -63.0), 40, 'stand'),
+            (36.8, -75.2, QUAY_Z, -90, 'scribe'), (38.9, -77.6, QUAY_Z, -91, 'point'),       # scribe, overseer
+            (34.95, -80.6, QUAY_Z, 180, 'hammer'), (34.95, -77.3, QUAY_Z, 180, 'hammer'),   # masons
+            (35.1, -70.3, QUAY_Z, 180, 'hammer'), (31.9, -86.6, QUAY_Z, 180, 'pour'),        # water for the crew
+            (41.4, -84.0, QUAY_Z, 180, 'sit'), (41.4, -77.0, QUAY_Z, 170, 'sit')]            # a rest on the bollards
+    for j, (x, y, z, hd, mode) in enumerate(busy):
+        place_person(S, k, (x, y, z), math.radians(hd), mode, 2.6 * v + j * 1.7)
         k += 1
-    # a team dragging a block on a sledge up the jetty (towards the shore)
-    sx, sy = 35.2, -97.5 + 0.55 * v
-    S.sledge.hide_render = False
-    S.sledge.location = (sx, sy, 2.95)
-    for j, (dx, dy) in enumerate(((-0.6, 3.2), (0.6, 3.6), (-0.6, 4.4), (0.6, 4.8))):
-        place_person(S, k, (sx + dx, sy + dy, 2.95), math.radians(90), 'walk', 0.55 * v / 1.45 * 2 * math.pi + j * 1.9)
+    # a team dragging a block on a sledge up the jetty, the rope over their right shoulders
+    k, rl = sledge_team(S, 0, k, (32.2, -97.5 + 0.55 * v), math.radians(90), 0.55 * v / 1.1 * 2 * math.pi, QUAY_Z)
+    set_lines(S, lines + rl)
+    # the island behind: carriers and walkers on the track, a rest by the cooking fires
+    k = place_walkers(S, k, [
+        ((26.0, -52.0), math.radians(150), 1.2, 0.3, 'walk'), ((18.0, -46.0), math.radians(-30), 1.1, 1.1, 'carry'),
+        ((8.0, -42.0), math.radians(160), 1.2, 2.3, 'shoulder'), ((-5.0, -48.0), math.radians(10), 1.0, 0.9, 'walk'),
+        ((-20.0, -38.0), math.radians(200), 1.1, 1.7, 'carry'), ((-35.0, -30.0), math.radians(30), 1.2, 0.4, 'walk'),
+        ((-45.0, -15.0), math.radians(-60), 1.0, 2.8, 'shoulder'), ((10.0, -58.0), math.radians(120), 1.2, 1.9, 'walk'),
+        ((0.0, -55.0), math.radians(80), 1.1, 0.2, 'carry'), ((-12.0, -60.0), math.radians(-20), 1.2, 1.4, 'walk')], v)
+    for j, (x, y, hd, mode) in enumerate(((-55.5, -9.5, 60, 'sit'), (-60.0, -6.0, -120, 'sit'), (-57.0, -5.0, 200, 'point'),
+                                          (-68.0, 10.0, 30, 'sit'), (-26.0, -48.0, 150, 'hammer'))):
+        place_person(S, k, (x, y, ground_z(x, y)), math.radians(hd), mode, 2.6 * v + j)
         k += 1
+    # rowing boats: one pulling away from the moored lighter, one crossing further out
+    k = life.pose_skiff(S, sys.modules[__name__], 0, (52.0 + 0.79 * life.skiff_distance(v), -78.0 + 0.61 * life.skiff_distance(v)),
+                        math.atan2(0.61, 0.79), v, k, seed=0)
+    d1 = life.skiff_distance(v + 3.0, 1.4)
+    hd1 = math.radians(205.0)
+    k = life.pose_skiff(S, sys.modules[__name__], 1, (74.0 + math.cos(hd1) * d1, -46.0 + math.sin(hd1) * d1), hd1, v + 3.0, k, seed=2)
     for i in range(k, len(S.people)):
         S.people[i].hide_render = True
     # ox carts: one leaving for the building site, one waiting at the jetty
     place_cart(S, 0, (30.0 - 0.95 * v * 0.6, -57.0 + 0.95 * v * 0.8), math.atan2(0.8, -0.6), 0.95 * v)
     place_cart(S, 1, (38.5, -56.5), math.radians(100), 0.0)
-    pose_gulls(S, v, (40.0, -92.0), 7)
+    pose_gulls(S, v, (44.0, -88.0), 10)
+    life.show_clutter(S, True)
+    S.pole.hide_render = False
+    x, y, z, h = SIGNAL_POLE
+    life.pose_pennants(S, [((x, y, z + h - 0.1), 2.4, 0.5, 0), ((tip.x, tip.y, tip.z + 0.2), 2.2, 0.45, 0)], v)
+    life.pose_smoke(S, site_plumes(), 40.0 + v, cam[0])
     meta.update(stars=0.0)
     return meta
+
+
+S2_POSES = ['stand', 'walk', 'carry', 'hammer', 'haul', 'stand', 'shoulder', 'point', 'walk', 'drag']
+
+
+def dress_workers(S, hop_t):
+    """The scene's time-lapse workers become proper people in varied trades."""
+    pal = SC.P['workers']
+    for i, o in enumerate(S.workers[:S.n_workers_used]):
+        if o.hide_render:
+            continue
+        slot = int(math.floor(hop_t * 1.5))
+        h = G._hash2(np.int64(i), np.int64(slot), 13)
+        mode = S2_POSES[int(h * len(S2_POSES)) % len(S2_POSES)]
+        meshes = S.pose_meshes[mode]
+        o.data = meshes[int(h * 997) % len(meshes)]
+        o.color = pal[(i * 5 + 1) % len(pal)] + (1.0,)
+        o.scale = (0.97 + 0.08 * ((i * 0.618) % 1.0),) * 3
+
+
+def water_spots(cam, slot, n, d0, d1, seed):
+    """n boat positions (x, y, heading) in open water that the camera sees,
+    re-drawn each time-lapse slot: sampled in the view cone, off the island and the quay."""
+    loc, tgt, lens = cam
+    base = math.atan2(tgt[1] - loc[1], tgt[0] - loc[0])
+    half = math.atan(18.0 / lens) * 0.85
+    out = []
+    for i in range(n):
+        for tries in range(24):
+            h = [G._hash2(np.int64(slot * 31 + tries), np.int64(i + 17 * seed), q) for q in (41, 42, 43)]
+            a = base + (2 * h[0] - 1) * half
+            d = d0 + (d1 - d0) * h[1]
+            x, y = loc[0] + d * math.cos(a), loc[1] + d * math.sin(a)
+            if SC.island_sd(np.array([x]), np.array([y]))[0] < 12.0:
+                continue
+            if 15.0 < x < 60.0 and -125.0 < y < -55.0:          # the quay and its berths
+                continue
+            if any(math.hypot(x - q[0], y - q[1]) < 25.0 for q in out):
+                continue
+            hd = math.radians(90 - (130 + 90 * h[2]))           # running before the NNW wind
+            out.append((x, y, hd))
+            break
+    return out
+
+
+def podium_workers(S, k, hop_t, n):
+    """Masons, haulers and carriers on the podium round the rising walls (time-lapse jumps)."""
+    a_in, a_out = SC.T1_A0 + 2.2, SC.PLAT_A[-1] - 1.0
+    slot = math.floor(hop_t * 1.5)
+    for j in range(n):
+        h = [G._hash2(np.int64(slot), np.int64(j), q) for q in (51, 52, 53, 54)]
+        side = int(h[0] * 4)
+        along = (2 * h[1] - 1) * a_out
+        depth = a_in + (a_out - a_in) * h[2]
+        x, y = [(depth, along), (along, depth), (-depth, along), (along, -depth)][side]
+        mode = S2_POSES[int(h[3] * len(S2_POSES)) % len(S2_POSES)]
+        place_person(S, k, (x, y, SC.PLAT_TOP), 2 * math.pi * h[3] * 7.0, mode, 6.3 * h[1])
+        k += 1
+    return k
 
 
 def shot_S2(S, v):
     tc = s2_tc(v)
     hour = s2_hour(v)
     cam = s2_cam(v, tc)
-    meta = SC.pose(S, v, tc=tc, hour=hour, life=v, hop_t=v, sea_t=v * 2.2, water_t=v * 0.9,
-                   cloud_t=hour * 0.75, shadow_t=hour * 124.0, cover=0.04 + 0.04 * math.sin(v * 0.7),
+    # calmer time-lapse: people and loads jump about once a second, clouds and
+    # their shadows drift steadily instead of racing with the clock at night
+    hop_t = v * 0.45
+    meta = SC.pose(S, v, tc=tc, hour=hour, life=v, hop_t=hop_t, sea_t=v * 1.4, water_t=v * 0.6,
+                   cloud_t=6.0 + v * 1.1, shadow_t=1000.0 + v * 70.0, cover=0.04 + 0.04 * math.sin(v * 0.7),
                    cloud_gain=7.0, shadow_cover=0.3, moon=0.0, crane5_loc=QUAY_CRANE, statue_yaw=STATUE_YAW,
-                   cam=cam)
+                   cam=cam, crowd=2.5)
+    dress_workers(S, hop_t)
+    day = meta['day']
+    # smoke from the camp and the smithy (faster in the time-lapse); coasting boats offshore
+    plumes = site_plumes() if day > 0.3 else []
+    life.pose_smoke(S, plumes, 200.0 + v * 6.0, cam[0])
+    if day > 0.35:
+        slot = math.floor(hop_t * 0.9)
+        for kb, (x, y, hd) in enumerate(water_spots(cam, slot, 5, 180.0, 700.0, 7)):
+            life.pose_boat(S, kb, (x, y), hd, v, seed=kb)
+    # sledge teams and ox carts on the tracks from the quay to the podium (time-lapse jumps)
+    k = 0
+    segs = []
+    building = TL.PHASES['platform'][0] < tc < TL.PHASES['scaf2_down'][0]
+    if day > 0.3 and building:
+        for j, (a, b) in enumerate((((24.0, -56.0), (9.0, -33.0)), ((40.0, -50.0), (31.0, -33.0)))):
+            f = G._hash2(np.int64(math.floor(hop_t * 1.5)), np.int64(j), 31)
+            x, y = a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f
+            k, sg = sledge_team(S, j + 1, k, (x, y), math.atan2(b[1] - a[1], b[0] - a[0]), 7.0 * f + j)
+            segs += sg
+        for j, (a, b) in enumerate((((34.0, -62.0), (14.0, -44.0)), ((32.0, -60.0), (44.0, -44.0)))):
+            f = G._hash2(np.int64(math.floor(hop_t * 1.5)), np.int64(j), 37)
+            hd = math.atan2(b[1] - a[1], b[0] - a[0]) + (math.pi if G._hash2(np.int64(math.floor(hop_t * 1.5)), np.int64(j), 38) > 0.5 else 0)
+            place_cart(S, j, (a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f), hd, 5.0 * f)
+        # harbour boats rowing past, and a crowd on the podium round the rising walls
+        for kk, (x, y, hd) in enumerate(water_spots(cam, math.floor(hop_t * 1.5), 3, 90.0, 260.0, 11)):
+            k = life.pose_skiff(S, sys.modules[__name__], kk, (x, y), hd, 7.3 * kk + (hop_t * 1.5 % 1.0) * 5.0, k, seed=kk)
+        k = podium_workers(S, k, hop_t, 34)
+    for i in range(k, len(S.people)):
+        S.people[i].hide_render = True
+    set_lines(S, segs)
+    # pennants on the cranes working the walls
+    mounts = []
+    for idx in range(5):
+        c = S.cranes[idx][0]
+        if not c.hide_render:
+            p = crane_tip(S, idx)
+            mounts.append(((p.x, p.y, p.z + 0.3), 3.0, 0.6, idx % 3))
+    life.pose_pennants(S, mounts, v * 0.9)
     meta.update(stars=0.0)
     return meta
 
 
 S3_CAM = (bearing_pos(156.0, 60.0, 105.5), (-2.5, 0.0, 106.3), 42.0)
-
-
 TAG_MEN = [(-7.6, -3.9), (-3.3, -7.3)]
+ROOF_CREW = [(110.0, 7.4, 'point'), (138.0, 7.6, 'stand'), (166.0, 7.2, 'stand'), (188.0, 7.6, 'point'),
+             (95.0, 8.2, 'stand')]
+# on the lantern scaffold (plank rings at 96.2 + 2 m steps, r 4.5..5.9): ready to receive the statue
+SCAFFOLD_CREW = [(128.0, 2, 'stand'), (171.0, 2, 'point'), (150.0, 3, 'point'), (205.0, 3, 'stand'), (112.0, 3, 'haul')]
+S3_BOATS = [(-487.6, 531.0, 160.0), (-128.6, 874.0, 175.0), (-717.0, 1143.0, 150.0)]
 
 
 def shot_S3(S, v):
@@ -1027,9 +1369,27 @@ def shot_S3(S, v):
         py = wy + 1.0 * math.sin(ta) + s * 0.6 * math.sin(SC.DERRICK_PHI)
         place_person(S, k, (px, py, SC.T2_ROOF), ta + math.pi, 'haul', v * 3 + s)
         k += 1
+    # the rest of the roof crew watch the statue come down, the foreman directs
+    for j, (b, r, mode) in enumerate(ROOF_CREW):
+        x, y = r * math.sin(math.radians(b)), r * math.cos(math.radians(b))
+        hd = math.atan2(statue.y - y, statue.x - x)
+        place_person(S, k, (x, y, SC.T2_ROOF), hd, mode, v * 2 + j)
+        k += 1
+    for j, (b, lift_i, mode) in enumerate(SCAFFOLD_CREW):
+        x, y = 5.2 * math.sin(math.radians(b)), 5.2 * math.cos(math.radians(b))
+        hd = math.atan2(-y, -x)                                   # facing the lantern, the statue above
+        place_person(S, k, (x, y, SC.T3_Z0 + 2.0 * lift_i + 2.02), hd, mode, v * 2.4 + j)
+        k += 1
     for i in range(k, len(S.people)):
         S.people[i].hide_render = True
     set_taglines(S, TAG_MEN, p)
+    pose_gulls(S, v, (-6.0, 4.0), 6, z0=88.0)
+    # boats offshore, a pennant on the derrick mast
+    for kb, (x, y, hd) in enumerate(S3_BOATS):
+        h = math.radians(90 - hd)
+        life.pose_boat(S, kb, (x + math.cos(h) * 2.5 * (v - 11), y + math.sin(h) * 2.5 * (v - 11)), h, v, seed=kb)
+    mx, my = SC.DERRICK_C
+    life.pose_pennants(S, [((mx, my, SC.T2_ROOF + SC.DERRICK_MAST + 0.2), 3.2, 0.6, 0)], v)
     meta.update(stars=0.0)
     return meta
 
@@ -1068,6 +1428,29 @@ S4_CAM0 = (bearing_pos(214.0, 262.0, 20.0), (0.0, 0.0, 53.0), 38.0)
 S4_CAM1 = (bearing_pos(209.0, 250.0, 19.0), (0.0, 0.0, 55.0), 38.0)
 
 
+def beacon_plume(glow):
+    return life.Plume((0.0, 0.0, SC.FIRE_POS[2] + 3.4), n=34, life=18.0, rise=1.9, drift=2.2, size0=3.2, grow=1.35,
+                      dens=0.34, glow=glow, seed=11)
+
+
+def podium_crowd(S, k, v, n=34, torches=False):
+    """People gathered on the podium to see the fire lit, on the side facing the camera."""
+    rng = np.random.default_rng(3)
+    a_in, a_out = SC.T1_A0 + 1.2, SC.PLAT_A[-1] - 1.2
+    for j in range(n):
+        side = rng.uniform(-1, 1)
+        depth = rng.uniform(a_in, a_out)
+        if j % 2:
+            x, y = -depth, side * a_out                   # west face
+        else:
+            x, y = side * a_out, -depth                   # south face
+        hd = math.atan2(-y, -x) + rng.uniform(-0.4, 0.4)
+        mode = ['stand', 'point', 'stand', 'walk'][j % 4]
+        place_person(S, k, (x, y, SC.PLAT_TOP), hd, mode, rng.uniform(0, 6.3) + (v * 2.0 if mode == 'walk' else 0))
+        k += 1
+    return k
+
+
 def shot_S4(S, v):
     u = (v - 13.5) / 2.5
     hour = 89.52 + 0.2 * u
@@ -1079,12 +1462,24 @@ def shot_S4(S, v):
     meta = SC.pose(S, v, tc=25.2, hour=hour, life=v, hop_t=v * 0.8, sea_t=v * 1.2, water_t=v * 0.5,
                    cloud_t=hour * 0.75, shadow_t=hour * 124.0, cover=0.1, cloud_gain=6.0, shadow_cover=0.25,
                    fire=fire, fire_surge=surge, crane5_loc=QUAY_CRANE, statue_yaw=STATUE_YAW, cam=cam)
-    pose_gulls(S, v, (0.0, -60.0), 0)
+    k = podium_crowd(S, 0, v)
+    # boats coming home before dark, gulls round the tower
+    for kb, (x, y, hd, spd) in enumerate(((-70.0, 135.0, 170.0, 3.0), (125.0, 45.0, 200.0, 2.6), (-160.0, 190.0, 160.0, 2.8))):
+        h = math.radians(90 - hd)
+        life.pose_boat(S, kb, (x + math.cos(h) * spd * (v - 13.5), y + math.sin(h) * spd * (v - 13.5)), h, v, seed=kb)
+    hd1 = math.radians(90 - 200.0)
+    d1 = life.skiff_distance(v - 13.5, 1.5)
+    k = life.pose_skiff(S, sys.modules[__name__], 0, (80.0 + math.cos(hd1) * d1, 95.0 + math.sin(hd1) * d1), hd1, v, k, seed=1)
+    for i in range(k, len(S.people)):
+        S.people[i].hide_render = True
+    pose_gulls(S, v, (0.0, -10.0), 5, z0=55.0)
+    life.pose_smoke(S, [beacon_plume(0.6 * fire)] if fire > 0.05 else [], 60.0 + v, cam[0])
     meta.update(stars=0.0)
     return meta
 
 
 S5_CAM = (bearing_pos(47.0, 292.0, 4.8), (0.0, 0.0, 46.0), 35.0)
+ANCHORAGE = [(75.0, -45.0, math.radians(25.0)), (112.0, -40.0, math.radians(-10.0)), (30.0, -125.0, math.radians(40.0))]
 
 
 def shot_S5(S, v):
@@ -1102,9 +1497,19 @@ def shot_S5(S, v):
     pos = p0 + 2.2 * (v - 16.0) * np.array([math.cos(hd), math.sin(hd)])
     brail = 0.1 + 0.5 * TL.ease_io(u)
     n = pose_ship(S, pos, hd, v, math.radians(25.0), brail)
+    # harbour boats with their lamps lit, ships riding at anchor
+    for kk, (x, y, hdb, seed) in enumerate(((158.0, 158.0, 137.0, 0), (122.0, 58.0, -43.0, 2))):
+        h = math.radians(90 - hdb)
+        d = life.skiff_distance(v - 16.0 + 2 * seed, 1.4)
+        n = life.pose_skiff(S, sys.modules[__name__], kk, (x + math.cos(h) * d, y + math.sin(h) * d), h, v, n,
+                            lamp=1.0, seed=seed)
+    life.pose_anchored(S, ANCHORAGE, v, lamp=1.0)
     for i in range(n, len(S.people)):
         S.people[i].hide_render = True
-    meta.update(stars=1.0)
+    mast_top = S.ship_root.matrix_world @ Vector((S.ship_mast_x, 0.0, S.ship_masthead + 0.3))
+    life.pose_pennants(S, [((mast_top.x, mast_top.y, mast_top.z), 3.0, 0.5, 0)], v)
+    life.pose_smoke(S, [beacon_plume(1.0)], 120.0 + v, loc)
+    meta.update(stars=1.0, expo_mul=0.72)          # a darker night, as asked
     return meta
 
 

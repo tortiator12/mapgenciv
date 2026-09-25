@@ -48,6 +48,24 @@ def mean_rgb(path):
     return [float(v) for v in lin.reshape(-1, 3).mean(axis=0)]
 
 
+def make_mips(maps, sizes=(256, 64)):
+    """Pre-filtered smaller copies of every map. Cycles does not mip-map
+    image textures, so distant surfaces pick these instead of shimmering."""
+    import cv2
+    mips = {}
+    for key, rel in maps.items():
+        src = os.path.join(OUT, rel)
+        im = cv2.imread(src, cv2.IMREAD_UNCHANGED)
+        levels = [rel]
+        for n in sizes:
+            small = cv2.resize(im, (n, n), interpolation=cv2.INTER_AREA)
+            out = src.replace('_1k.jpg', f'_{n}.png')
+            cv2.imwrite(out, small)
+            levels.append(os.path.relpath(out, OUT))
+        mips[key] = levels
+    return mips
+
+
 def main():
     os.makedirs(OUT, exist_ok=True)
     manifest = {}
@@ -66,6 +84,7 @@ def main():
                 download(url, path)
             entry['maps'][key] = os.path.relpath(path, OUT)
         entry['mean_rgb'] = mean_rgb(os.path.join(OUT, entry['maps']['diff']))
+        entry['mips'] = make_mips(entry['maps'])
         manifest[role] = entry
         print(role, asset, entry['size_m'], [round(v, 3) for v in entry['mean_rgb']], flush=True)
     with open(os.path.join(OUT, 'manifest.json'), 'w') as fh:

@@ -83,7 +83,7 @@ PALETTES = {
         wood=(0.50, 0.36, 0.22), plank=(0.60, 0.47, 0.31), rope=(0.34, 0.27, 0.17),
         cloth=(0.80, 0.74, 0.62), cloth2=(0.62, 0.30, 0.16), hull=(0.26, 0.17, 0.10), sail=(0.86, 0.79, 0.65),
         rock=((0.20, 0.16, 0.12), (0.40, 0.33, 0.24)), sand=((0.42, 0.30, 0.17), (0.58, 0.43, 0.26)),
-        dust=((0.44, 0.35, 0.23), (0.56, 0.45, 0.30)), scrub_ground=(0.30, 0.29, 0.13), scrub_k=0.45, cumulus=True, stone_detail=True, textures=True,
+        dust=((0.44, 0.35, 0.23), (0.56, 0.45, 0.30)), scrub_ground=(0.30, 0.29, 0.13), scrub_k=0.45, cumulus=True, stone_detail=True, textures=True, filtered_joints=True,
         wet=(0.10, 0.09, 0.08),
         boulder=((0.18, 0.15, 0.12), (0.42, 0.36, 0.28)), boulder_wet=(0.08, 0.07, 0.06),
         water=((0.004, 0.040, 0.070), (0.025, 0.19, 0.18)), foam=(0.80, 0.83, 0.82),
@@ -113,25 +113,49 @@ def use_textures():
     return bool(P.get('textures')) and bool(tex_manifest())
 
 
+PIX_ANGLE = 36.0 / (33.0 * 1280.0)   # radians per pixel (≈ a 33 mm lens at 1280 px)
+
+
+def pixel_footprint(nb):
+    """Size of one pixel on the surface (metres): used to filter fine detail."""
+    cam = nb.new('ShaderNodeCameraData')
+    return nb.math('MULTIPLY', cam.outputs['View Distance'], PIX_ANGLE)
+
+
 def tex_sample(nb, role, vec_m, detail=0.8, gray=False, normal_uv=None, normal_strength=0.8):
     """Sample photo texture `role` at its real-world size (vec_m in metres).
-    Returns (colour multiplier, tangent normal or None, roughness, height):
-    the multiplier is the texture divided by its mean colour, so the palette
-    keeps the hue and the photo only adds detail."""
+    Cycles has no mip-mapping, so the shader picks pre-filtered levels
+    (1k / 256 / 64 px) by the pixel footprint and fades to the mean colour
+    far away: no shimmering on moving shots.  Returns (colour multiplier,
+    tangent normal or None, roughness, height); the multiplier is the texture
+    divided by its mean colour, so the palette keeps the hue."""
     e = tex_manifest()[role]
     sx, sy = e['size_m']
     v = nb.vmath('MULTIPLY', vec_m, (1.0 / sx, 1.0 / sy, 1.0))
+    mips = e.get('mips') or {k: [p] for k, p in e['maps'].items()}
+    texel0 = max(sx, sy) / 1024.0
+    lvl = nb.math('LOGARITHM', nb.math('MAXIMUM', nb.math('DIVIDE', pixel_footprint(nb), texel0), 1e-3), 2.0)
+    # weights: 1k up to 2 texels per pixel, 256 up to 8, 64 up to 32, then the mean
+    w1 = nb.smooth(1.0, 2.0, lvl)
+    w2 = nb.smooth(3.0, 4.0, lvl)
+    w3 = nb.smooth(5.0, 6.0, lvl)
 
-    def img(key, noncolor):
+    def img(key, level, noncolor):
+        lv = min(level, len(mips[key]) - 1)
         n = nb.new('ShaderNodeTexImage', interpolation='Linear', extension='REPEAT')
-        im = bpy.data.images.load(os.path.join(TEX_DIR, e['maps'][key]), check_existing=True)
+        im = bpy.data.images.load(os.path.join(TEX_DIR, mips[key][lv]), check_existing=True)
         if noncolor:
             im.colorspace_settings.name = 'Non-Color'
         n.image = im
         nb.feed(n.inputs['Vector'], v)
         return n.outputs['Color']
-    diff = img('diff', False)
+
+    def mip(key, noncolor, constant):
+        c = nb.mix(w1, img(key, 0, noncolor), img(key, 1, noncolor))
+        c = nb.mix(w2, c, img(key, 2, noncolor))
+        return nb.mix(w3, c, constant)
     mr, mg, mb = e['mean_rgb']
+    diff = mip('diff', False, (mr, mg, mb, 1.0))
     if gray:
         bw = nb.new('ShaderNodeRGBToBW')
         nb.feed(bw.inputs[0], diff)
@@ -140,13 +164,13 @@ def tex_sample(nb, role, vec_m, detail=0.8, gray=False, normal_uv=None, normal_s
     else:
         ratio = nb.vmath('DIVIDE', diff, (mr, mg, mb))
     mult = nb.mix(detail, (1.0, 1.0, 1.0, 1.0), ratio)
-    rough = nb.sep(img('rough', True))[0]
-    height = nb.sep(img('disp', True))[0]
+    rough = nb.sep(img('rough', 1, True))[0]
+    height = nb.sep(mip('disp', True, (0.5, 0.5, 0.5, 1.0)))[0]
     nrm = None
     if normal_uv is not None:
         nm = nb.new('ShaderNodeNormalMap', space='TANGENT', uv_map=normal_uv)
-        nb.feed(nm.inputs['Color'], img('nor_gl', True))
-        nm.inputs['Strength'].default_value = normal_strength
+        nb.feed(nm.inputs['Color'], nb.mix(w1, img('nor_gl', 0, True), img('nor_gl', 1, True)))
+        nb.feed(nm.inputs['Strength'], nb.math('MULTIPLY', normal_strength, nb.math('SUBTRACT', 1.0, w2)))
         nrm = nm.outputs['Normal']
     return mult, nrm, rough, height
 
@@ -341,7 +365,9 @@ def principled(nb, base, rough=0.8, metal=0.0, spec=0.5, emit=None, emit_strengt
 
 
 def joint_mask(nb, width=0.05):
-    """1 on mortar joints (near the edges of each block face), 0 inside."""
+    """1 on mortar joints (near the edges of each block face), 0 inside.
+    In the bright look the joint is filtered by the pixel footprint: far away
+    it widens and fades to its average darkness instead of aliasing."""
     uv = nb.new('ShaderNodeUVMap', uv_map='UVMap').outputs[0]
     fs = nb.attr('fsize').outputs['Vector']
     u, v, _ = nb.sep(uv)
@@ -349,7 +375,13 @@ def joint_mask(nb, width=0.05):
     du = nb.math('MINIMUM', u, nb.math('SUBTRACT', w, u))
     dv = nb.math('MINIMUM', v, nb.math('SUBTRACT', h, v))
     d = nb.math('MINIMUM', du, dv)
-    return nb.math('SUBTRACT', 1.0, nb.smooth(0.0, width, d))
+    if not P.get('filtered_joints'):
+        return nb.math('SUBTRACT', 1.0, nb.smooth(0.0, width, d))
+    w_eff = nb.math('MAXIMUM', width, nb.math('MULTIPLY', pixel_footprint(nb), 1.5))
+    t = nb.math('DIVIDE', d, w_eff)
+    n = nb.new('ShaderNodeMapRange', interpolation_type='SMOOTHSTEP')
+    nb.feed(n.inputs['Value'], t)
+    return nb.math('MULTIPLY', nb.math('SUBTRACT', 1.0, n.outputs[0]), nb.math('DIVIDE', width, w_eff))
 
 
 def mat_masonry(name, base, joint_col, var=0.09, width=0.05, grime=None):
@@ -1624,7 +1656,13 @@ def mat_city_mat():
     nz = nb.math('ABSOLUTE', nb.sep(geo.outputs['Normal'])[2])
     vert = nb.math('LESS_THAN', nz, 0.3)
     k = nb.value(0.0, 'city_lights')
-    e = nb.math('MULTIPLY', nb.math('MULTIPLY', win, lit), nb.math('MULTIPLY', vert, k))
+    wl = nb.math('MULTIPLY', win, lit)
+    if P.get('filtered_joints'):
+        # far away a window is smaller than a pixel: use the lit fraction of the
+        # facade instead of sub-pixel dots that twinkle as the camera moves
+        far = nb.smooth(0.8, 3.0, pixel_footprint(nb))
+        wl = nb.mix(far, wl, 0.09, dtype='FLOAT')
+    e = nb.math('MULTIPLY', wl, nb.math('MULTIPLY', vert, k))
     b = principled(nb, base, 0.9, 0.0, 0.3, (1.0, 0.55, 0.22, 1), e)
     nb.feed(out.inputs['Surface'], b.outputs[0])
     return m
@@ -1811,7 +1849,7 @@ class State:
     pass
 
 
-def build(res=(1280, 720), look='dark', derrick=False):
+def build(res=(1280, 720), look='dark', derrick=False, n_workers=70):
     global P
     P = PALETTES[look]
     bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -1974,7 +2012,7 @@ def build(res=(1280, 720), look='dark', derrick=False):
     wm = worker_mesh(S.m_worker)
     S.workers = []
     palette = P['workers']
-    for i in range(70):
+    for i in range(n_workers):
         o = link(bpy.data.objects.new(f'Worker{i}', wm), coll)
         o.color = palette[i % len(palette)] + (1.0,)
         o.pass_index = PASS['worker']
@@ -2262,7 +2300,8 @@ def pose(S, t, **kw):
     # --- workers (time-lapse: they jump around a bit every few frames)
     rngw = np.random.default_rng(int(hop_t * TL.FPS / 3) + 1000)
     building = t1a - 0.5 < tc < removal
-    n_top = 16 if building else 0
+    crowd = kw.get('crowd', 1.0)
+    n_top = int(16 * crowd) if building else 0
     active = 0.35 + 0.65 * day
     wi = 0
     for i in range(n_top):
@@ -2278,7 +2317,7 @@ def pose(S, t, **kw):
             x, y = top_ring_point(zz, hop(i + 900, hop_t, 3.0), th * 0.5)
             o.location = (x, y, zz)
             o.rotation_euler = (0, 0, rngw.uniform(0, 6.3))
-    for i in range(14):   # on the scaffold planks just below the top
+    for i in range(int(14 * crowd)):   # on the scaffold planks just below the top
         o = S.workers[wi]
         wi += 1
         vis = building and hop(i + 400, hop_t, 2.0) < active and H > PLAT_TOP + 4
@@ -2295,7 +2334,7 @@ def pose(S, t, **kw):
             k = int(s) % n
             p = Pl[k] + (Pl[(k + 1) % n] - Pl[k]) * (s - int(s))
             o.location = (p[0], p[1], zz + 0.05)
-    for i in range(40):   # on the ground: stacks, quay, camp
+    for i in range(int(40 * crowd)):   # on the ground: stacks, quay, camp
         o = S.workers[wi]
         wi += 1
         vis = hop(i + 500, hop_t, 1.5) < (0.25 + 0.75 * day) * (1.0 if tc < removal + 1 else 0.3)
@@ -2306,6 +2345,8 @@ def pose(S, t, **kw):
             x, y = rad * math.cos(ang), rad * math.sin(ang)
             o.location = (x, y, float(island_height(np.array([x]), np.array([y]))[0]))
             o.rotation_euler = (0, 0, ang + 1.6)
+    for o in S.workers[wi:]:
+        o.hide_render = True
     S.n_workers_used = wi
 
     # --- ships (daylight traffic in the harbour) and stone barges

@@ -22,7 +22,29 @@
    0.12101013213396072,
    0.0746917650103569,
    0.04480531066656113
-  ]
+  ],
+  "mips": {
+   "diff": [
+    "weathered_brown_planks/weathered_brown_planks_diff_1k.jpg",
+    "weathered_brown_planks/weathered_brown_planks_diff_256.png",
+    "weathered_brown_planks/weathered_brown_planks_diff_64.png"
+   ],
+   "nor_gl": [
+    "weathered_brown_planks/weathered_brown_planks_nor_gl_1k.jpg",
+    "weathered_brown_planks/weathered_brown_planks_nor_gl_256.png",
+    "weathered_brown_planks/weathered_brown_planks_nor_gl_64.png"
+   ],
+   "rough": [
+    "weathered_brown_planks/weathered_brown_planks_rough_1k.jpg",
+    "weathered_brown_planks/weathered_brown_planks_rough_256.png",
+    "weathered_brown_planks/weathered_brown_planks_rough_64.png"
+   ],
+   "disp": [
+    "weathered_brown_planks/weathered_brown_planks_disp_1k.jpg",
+    "weathered_brown_planks/weathered_brown_planks_disp_256.png",
+    "weathered_brown_planks/weathered_brown_planks_disp_64.png"
+   ]
+  }
  },
  "deck": {
   "asset": "old_planks_02",
@@ -46,7 +68,29 @@
    0.12292622029781342,
    0.09159810096025467,
    0.06396695226430893
-  ]
+  ],
+  "mips": {
+   "diff": [
+    "old_planks_02/old_planks_02_diff_1k.jpg",
+    "old_planks_02/old_planks_02_diff_256.png",
+    "old_planks_02/old_planks_02_diff_64.png"
+   ],
+   "nor_gl": [
+    "old_planks_02/old_planks_02_nor_gl_1k.jpg",
+    "old_planks_02/old_planks_02_nor_gl_256.png",
+    "old_planks_02/old_planks_02_nor_gl_64.png"
+   ],
+   "rough": [
+    "old_planks_02/old_planks_02_rough_1k.jpg",
+    "old_planks_02/old_planks_02_rough_256.png",
+    "old_planks_02/old_planks_02_rough_64.png"
+   ],
+   "disp": [
+    "old_planks_02/old_planks_02_disp_1k.jpg",
+    "old_planks_02/old_planks_02_disp_256.png",
+    "old_planks_02/old_planks_02_disp_64.png"
+   ]
+  }
  },
  "stone": {
   "asset": "worn_rock_natural_01",
@@ -71,7 +115,29 @@
    0.39667508006095886,
    0.2764756977558136,
    0.1449287384748459
-  ]
+  ],
+  "mips": {
+   "diff": [
+    "worn_rock_natural_01/worn_rock_natural_01_diff_1k.jpg",
+    "worn_rock_natural_01/worn_rock_natural_01_diff_256.png",
+    "worn_rock_natural_01/worn_rock_natural_01_diff_64.png"
+   ],
+   "nor_gl": [
+    "worn_rock_natural_01/worn_rock_natural_01_nor_gl_1k.jpg",
+    "worn_rock_natural_01/worn_rock_natural_01_nor_gl_256.png",
+    "worn_rock_natural_01/worn_rock_natural_01_nor_gl_64.png"
+   ],
+   "rough": [
+    "worn_rock_natural_01/worn_rock_natural_01_rough_1k.jpg",
+    "worn_rock_natural_01/worn_rock_natural_01_rough_256.png",
+    "worn_rock_natural_01/worn_rock_natural_01_rough_64.png"
+   ],
+   "disp": [
+    "worn_rock_natural_01/worn_rock_natural_01_disp_1k.jpg",
+    "worn_rock_natural_01/worn_rock_natural_01_disp_256.png",
+    "worn_rock_natural_01/worn_rock_natural_01_disp_64.png"
+   ]
+  }
  },
  "sand": {
   "asset": "sand_01",
@@ -95,7 +161,29 @@
    0.38177064061164856,
    0.30634209513664246,
    0.16230818629264832
-  ]
+  ],
+  "mips": {
+   "diff": [
+    "sand_01/sand_01_diff_1k.jpg",
+    "sand_01/sand_01_diff_256.png",
+    "sand_01/sand_01_diff_64.png"
+   ],
+   "nor_gl": [
+    "sand_01/sand_01_nor_gl_1k.jpg",
+    "sand_01/sand_01_nor_gl_256.png",
+    "sand_01/sand_01_nor_gl_64.png"
+   ],
+   "rough": [
+    "sand_01/sand_01_rough_1k.jpg",
+    "sand_01/sand_01_rough_256.png",
+    "sand_01/sand_01_rough_64.png"
+   ],
+   "disp": [
+    "sand_01/sand_01_disp_1k.jpg",
+    "sand_01/sand_01_disp_256.png",
+    "sand_01/sand_01_disp_64.png"
+   ]
+  }
  },
  "linen": {
   "asset": "rough_linen",
@@ -120,7 +208,29 @@
    0.28707173466682434,
    0.4099191129207611,
    0.6156736612319946
-  ]
+  ],
+  "mips": {
+   "diff": [
+    "rough_linen/rough_linen_diff_1k.jpg",
+    "rough_linen/rough_linen_diff_256.png",
+    "rough_linen/rough_linen_diff_64.png"
+   ],
+   "nor_gl": [
+    "rough_linen/rough_linen_nor_gl_1k.jpg",
+    "rough_linen/rough_linen_nor_gl_256.png",
+    "rough_linen/rough_linen_nor_gl_64.png"
+   ],
+   "rough": [
+    "rough_linen/rough_linen_rough_1k.jpg",
+    "rough_linen/rough_linen_rough_256.png",
+    "rough_linen/rough_linen_rough_64.png"
+   ],
+   "disp": [
+    "rough_linen/rough_linen_disp_1k.jpg",
+    "rough_linen/rough_linen_disp_256.png",
+    "rough_linen/rough_linen_disp_64.png"
+   ]
+  }
  },
  "timber": {
   "asset": "rough_wood",
@@ -144,6 +254,28 @@
    0.15296772122383118,
    0.12842011451721191,
    0.10093436390161514
-  ]
+  ],
+  "mips": {
+   "diff": [
+    "rough_wood/rough_wood_diff_1k.jpg",
+    "rough_wood/rough_wood_diff_256.png",
+    "rough_wood/rough_wood_diff_64.png"
+   ],
+   "nor_gl": [
+    "rough_wood/rough_wood_nor_gl_1k.jpg",
+    "rough_wood/rough_wood_nor_gl_256.png",
+    "rough_wood/rough_wood_nor_gl_64.png"
+   ],
+   "rough": [
+    "rough_wood/rough_wood_rough_1k.jpg",
+    "rough_wood/rough_wood_rough_256.png",
+    "rough_wood/rough_wood_rough_64.png"
+   ],
+   "disp": [
+    "rough_wood/rough_wood_disp_1k.jpg",
+    "rough_wood/rough_wood_disp_256.png",
+    "rough_wood/rough_wood_disp_64.png"
+   ]
+  }
  }
 }

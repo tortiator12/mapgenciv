@@ -60,7 +60,7 @@ def configure_beauty(sc, spp, res):
     cy.glossy_bounces = 1
     cy.transmission_bounces = 0
     cy.volume_bounces = 0
-    cy.transparent_max_bounces = 2
+    cy.transparent_max_bounces = 16      # smoke puffs overlap
     cy.caustics_reflective = False
     cy.caustics_refractive = False
     cy.sample_clamp_indirect = 4.0
