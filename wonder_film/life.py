@@ -271,6 +271,8 @@ def pose_skiff(S, F, k, pos, heading, t, first_person, rowing=True, lamp=0.0, se
          @ Matrix.Rotation(-pitch, 4, 'Y') @ Matrix.Rotation(roll, 4, 'X'))
     sk.root.matrix_world = M
     sk.hull.hide_render = sk.fit.hide_render = False
+    if rowing:
+        add_wake(S, pos, heading, 0.55, SKIFF_L)
     a, e = stroke(ph)
     for o, px, sg in sk.oars:
         o.hide_render = False
@@ -349,6 +351,7 @@ def pose_boat(S, k, pos, heading, t, seed=0.0):
                          @ Matrix.Rotation(-pitch, 4, 'Y') @ Matrix.Rotation(roll, 4, 'X'))
     for o in parts:
         o.hide_render = False
+    add_wake(S, pos, heading, 0.7, 9.0)
     # the yard is braced square to the wind: rotate the sail+yard about the mast
     rel = WIND_HEADING - heading
     brace = max(-0.6, min(0.6, math.atan2(math.sin(rel), math.cos(rel)) * 0.5))
@@ -677,7 +680,27 @@ def build(S, F):
     build_pennants(S)
 
 
+def add_wake(S, pos, heading, strength, length):
+    if not hasattr(S, 'wakes'):
+        S.wakes = []
+    S.wakes.append((float(pos[0]), float(pos[1]), float(heading), strength, length))
+
+
+def apply_wakes(S):
+    """Hand this frame's moving boats to the sea shader (up to SC.N_WAKES)."""
+    if not SC.P.get('wakes'):
+        return
+    nodes = S.sea.data.materials[0].node_tree.nodes
+    wakes = getattr(S, 'wakes', [])[:SC.N_WAKES]
+    for i in range(SC.N_WAKES):
+        x, y, h, st, L = wakes[i] if i < len(wakes) else (0.0, 0.0, 0.0, 0.0, 7.0)
+        for key, val in (('x', x), ('y', y), ('h', h), ('s', st), ('L', L)):
+            nodes[f'wake{i}_{key}'].outputs[0].default_value = val
+    S.wakes = []
+
+
 def hide_all(S):
+    S.wakes = []
     hide_skiffs(S)
     hide_boats(S)
     pose_anchored(S, [], 0.0)

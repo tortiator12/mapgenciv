@@ -1144,6 +1144,7 @@ def shot_S1(S, v):
     meta = SC.pose(S, v, tc=0.95, hour=hour, life=v, hop_t=0.3, sea_t=40.0 + v, water_t=16.0 + 0.4 * v,
                    cloud_t=hour * 0.75, shadow_t=hour * 124.0, cover=0.02, cloud_gain=7.0, shadow_cover=0.3,
                    traffic=False, crane5_loc=QUAY_CRANE, statue_yaw=STATUE_YAW, cam=cam)
+    dress_workers(S, 0.3)
     # barges: one moored alongside the jetty being unloaded, one coming in
     for i, (h, r, cg) in enumerate(S.barges):
         h.hide_render = r.hide_render = cg.hide_render = i > 1
@@ -1154,6 +1155,7 @@ def shot_S1(S, v):
     x = 71.0 - 1.0 * v
     h.location = (x, -73.5, 0.1 + 0.05 * math.sin(1.1 * v + 1))
     h.rotation_euler = (0, 0, math.pi)
+    life.add_wake(S, (x, -73.5), math.pi, 0.4, 16.0)
     # quay crane: swings a block from the barge onto the jetty (real time)
     c, rope, load = S.cranes[5]
     slew = math.radians(15.0 + 45.0 * TL.ease_io(u))
@@ -1233,7 +1235,7 @@ def dress_workers(S, hop_t):
     for i, o in enumerate(S.workers[:S.n_workers_used]):
         if o.hide_render:
             continue
-        slot = int(math.floor(hop_t * 1.5))
+        slot = int(math.floor(hop_t * 1.5 + (i * 0.618) % 1.0))
         h = G._hash2(np.int64(i), np.int64(slot), 13)
         mode = S2_POSES[int(h * len(S2_POSES)) % len(S2_POSES)]
         meshes = S.pose_meshes[mode]
@@ -1242,14 +1244,16 @@ def dress_workers(S, hop_t):
         o.scale = (0.97 + 0.08 * ((i * 0.618) % 1.0),) * 3
 
 
-def water_spots(cam, slot, n, d0, d1, seed):
-    """n boat positions (x, y, heading) in open water that the camera sees,
-    re-drawn each time-lapse slot: sampled in the view cone, off the island and the quay."""
+def water_spots(cam, clock, n, d0, d1, seed):
+    """n boat positions (x, y, heading, slot) in open water that the camera sees,
+    each re-drawn at its own time-lapse moment: sampled in the view cone, off
+    the island and the quay."""
     loc, tgt, lens = cam
     base = math.atan2(tgt[1] - loc[1], tgt[0] - loc[0])
     half = math.atan(18.0 / lens) * 0.85
     out = []
     for i in range(n):
+        slot = math.floor(clock + (i * 0.618 + seed * 0.37) % 1.0)
         for tries in range(24):
             h = [G._hash2(np.int64(slot * 31 + tries), np.int64(i + 17 * seed), q) for q in (41, 42, 43)]
             a = base + (2 * h[0] - 1) * half
@@ -1262,7 +1266,7 @@ def water_spots(cam, slot, n, d0, d1, seed):
             if any(math.hypot(x - q[0], y - q[1]) < 25.0 for q in out):
                 continue
             hd = math.radians(90 - (130 + 90 * h[2]))           # running before the NNW wind
-            out.append((x, y, hd))
+            out.append((x, y, hd, slot))
             break
     return out
 
@@ -1270,8 +1274,8 @@ def water_spots(cam, slot, n, d0, d1, seed):
 def podium_workers(S, k, hop_t, n):
     """Masons, haulers and carriers on the podium round the rising walls (time-lapse jumps)."""
     a_in, a_out = SC.T1_A0 + 2.2, SC.PLAT_A[-1] - 1.0
-    slot = math.floor(hop_t * 1.5)
     for j in range(n):
+        slot = math.floor(hop_t * 1.5 + (j * 0.618 + 0.3) % 1.0)
         h = [G._hash2(np.int64(slot), np.int64(j), q) for q in (51, 52, 53, 54)]
         side = int(h[0] * 4)
         along = (2 * h[1] - 1) * a_out
@@ -1293,7 +1297,7 @@ def shot_S2(S, v):
     meta = SC.pose(S, v, tc=tc, hour=hour, life=v, hop_t=hop_t, sea_t=v * 1.4, water_t=v * 0.6,
                    cloud_t=6.0 + v * 1.1, shadow_t=1000.0 + v * 70.0, cover=0.04 + 0.04 * math.sin(v * 0.7),
                    cloud_gain=7.0, shadow_cover=0.3, moon=0.0, crane5_loc=QUAY_CRANE, statue_yaw=STATUE_YAW,
-                   cam=cam, crowd=2.5)
+                   cam=cam, crowd=2.5, torch_t=v * 0.08)
     dress_workers(S, hop_t)
     life.show_site_dressing(S, tc < TL.PHASES['scaf2_down'][1])
     day = meta['day']
@@ -1301,8 +1305,7 @@ def shot_S2(S, v):
     plumes = site_plumes() if day > 0.3 else []
     life.pose_smoke(S, plumes, 200.0 + v * 6.0, cam[0])
     if day > 0.35:
-        slot = math.floor(hop_t * 0.9)
-        for kb, (x, y, hd) in enumerate(water_spots(cam, slot, 5, 180.0, 700.0, 7)):
+        for kb, (x, y, hd, _) in enumerate(water_spots(cam, hop_t * 0.9, 5, 180.0, 700.0, 7)):
             life.pose_boat(S, kb, (x, y), hd, v, seed=kb)
     # sledge teams and ox carts on the tracks from the quay to the podium (time-lapse jumps)
     k = 0
@@ -1310,17 +1313,18 @@ def shot_S2(S, v):
     building = TL.PHASES['platform'][0] < tc < TL.PHASES['scaf2_down'][0]
     if day > 0.3 and building:
         for j, (a, b) in enumerate((((24.0, -56.0), (9.0, -33.0)), ((40.0, -50.0), (31.0, -33.0)))):
-            f = G._hash2(np.int64(math.floor(hop_t * 1.5)), np.int64(j), 31)
+            f = G._hash2(np.int64(math.floor(hop_t * 1.5 + 0.5 * j)), np.int64(j), 31)
             x, y = a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f
             k, sg = sledge_team(S, j + 1, k, (x, y), math.atan2(b[1] - a[1], b[0] - a[0]), 7.0 * f + j)
             segs += sg
         for j, (a, b) in enumerate((((34.0, -62.0), (14.0, -44.0)), ((32.0, -60.0), (44.0, -44.0)))):
-            f = G._hash2(np.int64(math.floor(hop_t * 1.5)), np.int64(j), 37)
-            hd = math.atan2(b[1] - a[1], b[0] - a[0]) + (math.pi if G._hash2(np.int64(math.floor(hop_t * 1.5)), np.int64(j), 38) > 0.5 else 0)
+            cs = math.floor(hop_t * 1.5 + 0.25 + 0.5 * j)
+            f = G._hash2(np.int64(cs), np.int64(j), 37)
+            hd = math.atan2(b[1] - a[1], b[0] - a[0]) + (math.pi if G._hash2(np.int64(cs), np.int64(j), 38) > 0.5 else 0)
             place_cart(S, j, (a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f), hd, 5.0 * f)
         # harbour boats rowing past, and a crowd on the podium round the rising walls
-        for kk, (x, y, hd) in enumerate(water_spots(cam, math.floor(hop_t * 1.5), 3, 90.0, 260.0, 11)):
-            k = life.pose_skiff(S, sys.modules[__name__], kk, (x, y), hd, 7.3 * kk + (hop_t * 1.5 % 1.0) * 5.0, k, seed=kk)
+        for kk, (x, y, hd, slot) in enumerate(water_spots(cam, hop_t * 1.5, 3, 90.0, 260.0, 11)):
+            k = life.pose_skiff(S, sys.modules[__name__], kk, (x, y), hd, 7.3 * kk + 1.37 * slot, k, seed=kk)
         k = podium_workers(S, k, hop_t, 34)
     for i in range(k, len(S.people)):
         S.people[i].hide_render = True
@@ -1356,6 +1360,7 @@ def shot_S3(S, v):
                    water_t=v * 0.6, cloud_t=hour * 0.75, shadow_t=hour * 124.0, cover=0.06, cloud_gain=7.0,
                    shadow_cover=0.3, statue_p=p, statue_yaw=STATUE_YAW, crane5_loc=QUAY_CRANE,
                    cam=(loc, tgt, lens))
+    dress_workers(S, 11.0 + (v - 11.0) * 0.5)
     # tag-line men on the octagon roof, leaning on their lines
     statue = S.statue.location
     k = 0
@@ -1465,6 +1470,7 @@ def shot_S4(S, v):
     meta = SC.pose(S, v, tc=25.2, hour=hour, life=v, hop_t=v * 0.8, sea_t=v * 1.2, water_t=v * 0.5,
                    cloud_t=hour * 0.75, shadow_t=hour * 124.0, cover=0.1, cloud_gain=6.0, shadow_cover=0.25,
                    fire=fire, fire_surge=surge, crane5_loc=QUAY_CRANE, statue_yaw=STATUE_YAW, cam=cam)
+    dress_workers(S, v * 0.8)
     k = podium_crowd(S, 0, v)
     # boats coming home before dark, gulls round the tower
     for kb, (x, y, hd, spd) in enumerate(((-70.0, 135.0, 170.0, 3.0), (125.0, 45.0, 200.0, 2.6), (-160.0, 190.0, 160.0, 2.8))):
@@ -1494,12 +1500,14 @@ def shot_S5(S, v):
                    cloud_t=hour * 0.75, shadow_t=hour * 124.0, cover=0.12, cloud_gain=5.0, shadow_cover=0.25,
                    fire=1.0, traffic=False, moon=1.0, crane5_loc=QUAY_CRANE, statue_yaw=STATUE_YAW,
                    cam=(loc, tgt, lens))
+    dress_workers(S, 5.0)
     heading_b = 150.0
     hd = math.radians(90.0 - heading_b)
     p0 = np.array([158.5, 181.9])
     pos = p0 + 2.2 * (v - 16.0) * np.array([math.cos(hd), math.sin(hd)])
     brail = 0.1 + 0.5 * TL.ease_io(u)
     n = pose_ship(S, pos, hd, v, math.radians(25.0), brail)
+    life.add_wake(S, pos, hd, 0.8, SHIP_L)
     # harbour boats with their lamps lit, ships riding at anchor
     for kk, (x, y, hdb, seed) in enumerate(((158.0, 158.0, 137.0, 0), (122.0, 58.0, -43.0, 2))):
         h = math.radians(90 - hdb)
@@ -1530,5 +1538,6 @@ def pose(S, f):
     meta = SHOT_FN[name](S, v)
     if name != 'S1':
         pose_treadwheel(S, 0.8 * v)          # the quay crane keeps its wheel in the wide shots
+    life.apply_wakes(S)
     meta.update(shot=name, shot_t=v - a, t=v)
     return meta

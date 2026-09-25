@@ -83,7 +83,9 @@ PALETTES = {
         wood=(0.50, 0.36, 0.22), plank=(0.60, 0.47, 0.31), rope=(0.34, 0.27, 0.17),
         cloth=(0.80, 0.74, 0.62), cloth2=(0.62, 0.30, 0.16), hull=(0.26, 0.17, 0.10), sail=(0.86, 0.79, 0.65),
         rock=((0.20, 0.16, 0.12), (0.40, 0.33, 0.24)), sand=((0.42, 0.30, 0.17), (0.58, 0.43, 0.26)),
-        dust=((0.44, 0.35, 0.23), (0.56, 0.45, 0.30)), scrub_ground=(0.30, 0.29, 0.13), scrub_k=0.45, cumulus=True, stone_detail=True, textures=True, filtered_joints=True, worksite=True,
+        dust=((0.44, 0.35, 0.23), (0.56, 0.45, 0.30)), scrub_ground=(0.30, 0.29, 0.13), scrub_k=0.45, cumulus=True, stone_detail=True, textures=True, filtered_joints=True, worksite=True, wakes=True,
+        wave_dir=-67.6,   # wind waves run with the Etesian NNW (towards SSE), like smoke, pennants and sails
+        hop_desync=True,  # time-lapse jumps staggered per object
         wet=(0.10, 0.09, 0.08),
         boulder=((0.18, 0.15, 0.12), (0.42, 0.36, 0.28)), boulder_wet=(0.08, 0.07, 0.06),
         water=((0.004, 0.040, 0.070), (0.025, 0.19, 0.18)), foam=(0.80, 0.83, 0.82),
@@ -831,6 +833,42 @@ def shore_foam_image():
     return img, (x0, x1, y0, y1)
 
 
+N_WAKES = 6
+KELVIN = math.tan(math.radians(19.47))
+
+
+def wake_foam(nb, x, y, pos, tw):
+    """Foam behind moving boats, drawn on the displaced sea: the two arms of a
+    Kelvin wedge (19.5 deg half-angle, from the bow) and the churned water
+    behind the stern, both fading astern.  Boats are value nodes wake{i}_*
+    (x, y, heading, strength, length) set per frame; strength 0 = no wake."""
+    total = None
+    brk = nb.noise(nb.vmath('ADD', pos, nb.comb(0.0, 0.0, nb.math('MULTIPLY', tw, 3.0))), 0.9, 3.0, 0.6).outputs['Fac']
+    for i in range(N_WAKES):
+        bx, by = nb.value(0.0, f'wake{i}_x'), nb.value(0.0, f'wake{i}_y')
+        hd, st, bl = nb.value(0.0, f'wake{i}_h'), nb.value(0.0, f'wake{i}_s'), nb.value(7.0, f'wake{i}_L')
+        dx, dy = nb.math('SUBTRACT', x, bx), nb.math('SUBTRACT', y, by)
+        ch, sh = nb.math('COSINE', hd), nb.math('SINE', hd)
+        u = nb.math('MULTIPLY', nb.math('ADD', nb.math('MULTIPLY', dx, ch), nb.math('MULTIPLY', dy, sh)), -1.0)
+        v = nb.math('ABSOLUTE', nb.math('SUBTRACT', nb.math('MULTIPLY', dy, ch), nb.math('MULTIPLY', dx, sh)))
+        half = nb.math('MULTIPLY', bl, 0.5)
+        ub = nb.math('ADD', u, half)                                   # astern of the bow
+        us = nb.math('SUBTRACT', u, half)                              # astern of the stern
+        fade = nb.math('EXPONENT', nb.math('DIVIDE', nb.math('MULTIPLY', ub, -1.0), nb.math('MULTIPLY', bl, 3.0)))
+        wid = nb.math('ADD', 0.3, nb.math('MULTIPLY', ub, 0.04))
+        off = nb.math('DIVIDE', nb.math('SUBTRACT', v, nb.math('MULTIPLY', ub, KELVIN)), wid)
+        arm = nb.math('MULTIPLY', nb.math('EXPONENT', nb.math('MULTIPLY', nb.math('MULTIPLY', off, off), -1.0)),
+                      nb.math('GREATER_THAN', ub, 0.0))
+        cw = nb.math('ADD', 0.35, nb.math('MULTIPLY', us, 0.05))
+        oc = nb.math('DIVIDE', v, cw)
+        core = nb.math('MULTIPLY', nb.math('EXPONENT', nb.math('MULTIPLY', nb.math('MULTIPLY', oc, oc), -1.0)),
+                       nb.math('GREATER_THAN', us, 0.0))
+        core = nb.math('MULTIPLY', core, nb.math('EXPONENT', nb.math('DIVIDE', nb.math('MULTIPLY', us, -1.0), bl)))
+        w = nb.math('MULTIPLY', nb.math('MAXIMUM', nb.math('MULTIPLY', arm, 0.7), core), nb.math('MULTIPLY', fade, st))
+        total = w if total is None else nb.math('MAXIMUM', total, w)
+    return nb.math('MULTIPLY', total, nb.smooth(0.3, 0.6, brk), clamp=True)
+
+
 def mat_water(foam_img, extent):
     m, nb, out = new_material('Water')
     geo = nb.new('ShaderNodeNewGeometry')
@@ -851,6 +889,8 @@ def mat_water(foam_img, extent):
     foam_attr = nb.attr('foam').outputs['Fac']
     whitecap = nb.smooth(0.45, 0.95, foam_attr)
     foam = nb.math('MAXIMUM', surf, nb.math('MULTIPLY', whitecap, 0.55))
+    if P.get('wakes'):
+        foam = nb.math('MAXIMUM', foam, wake_foam(nb, x, y, pos, tw))
     base = nb.mix(shallow, P['water'][0] + (1,), P['water'][1] + (1,))
     col = nb.mix(foam, base, P['foam'] + (1,))
     b = principled(nb, col, rough=nb.math('ADD', 0.05, nb.math('MULTIPLY', foam, 0.8)), spec=0.5)
@@ -877,7 +917,7 @@ def build_sea(coll):
     mod.choppiness = 1.15
     mod.wind_velocity = 13.0
     mod.wave_alignment = 0.35
-    mod.wave_direction = math.radians(200)
+    mod.wave_direction = math.radians(P.get('wave_dir', 200.0))
     mod.use_normals = False
     mod.use_foam = True
     mod.foam_layer_name = 'foam'
@@ -2169,8 +2209,11 @@ def smooth_rand(seed, t, rate):
 
 
 def hop(seed, t, rate):
-    """Random value held constant for 1/rate seconds (time-lapse 'jumps')."""
-    return float(G._hash2(np.int64(math.floor(t * rate)), np.int64(seed), 9))
+    """Random value held constant for 1/rate seconds (time-lapse 'jumps').  With
+    the palette's hop_desync every seed jumps at its own moment, so a crowd
+    changes continuously instead of all at once (no pulsing)."""
+    off = (seed * 0.6180339887) % 1.0 if P.get('hop_desync') else 0.0
+    return float(G._hash2(np.int64(math.floor(t * rate + off)), np.int64(seed), 9))
 
 
 def tier_size(z):
@@ -2232,6 +2275,7 @@ def pose(S, t, **kw):
       sea_t, water_t, cloud_t, shadow_t, cover, shadow_cover
       fire      beacon intensity 0..1, statue_p hoist progress 0..1
       cam       (location, target, lens); traffic=False hides ships and barges
+      torch_t   clock of the torches' flicker (a time-lapse exposure averages it out)
     """
     sc = bpy.context.scene
     tc = kw.get('tc', t)
@@ -2532,7 +2576,7 @@ def pose(S, t, **kw):
     for i, (lo, fo) in enumerate(S.torches):
         if i < len(spots) and tk > 0.01:
             x, y, z, s = spots[i]
-            fl = 0.8 + 0.2 * smooth_rand(i + 200, life, 8.0)
+            fl = 0.8 + 0.2 * smooth_rand(i + 200, kw.get('torch_t', life), 8.0)
             lo.location = (x, y, z + 0.6)
             fo.location = (x, y, z)
             fo.scale = (s * fl,) * 3
