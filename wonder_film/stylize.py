@@ -333,7 +333,7 @@ def unsharp(img, sigma, amount):
 # overall gain).  The night shot keeps its colours.
 WONDER = dict(warm={'S1': (0.8, 4.5), 'S2': (0.6, 4.5), 'S3': (0.4, 3.0), 'S4': (0.0, 2.0), 'S5': (0.0, 1.0)},
               gain={'S1': 0.92, 'S2': 0.94, 'S3': 0.95, 'S4': 0.98, 'S5': 1.0},
-              blue_desat=0.08, warm_sat=0.06, contrast=5.0, pivot=0.48, mix=0.8, clarity=0.3, canvas=0.03)
+              blue_desat=0.08, warm_sat=0.06, contrast=5.0, pivot=0.48, mix=0.8, clarity=0.3, canvas=0.0)
 _CANVAS = {}
 
 
@@ -366,7 +366,8 @@ def wonder_grade(disp, shot, p=WONDER):
     out = cv2.cvtColor(np.stack([np.clip(L, 0, 100), a, b], -1).astype(np.float32), cv2.COLOR_Lab2RGB)
     blur = cv2.GaussianBlur(out, (0, 0), 14 * out.shape[0] / 720.0)
     out = out + (out - blur) * p['clarity']
-    out = out * (1 + p['canvas'] * canvas_texture(*out.shape[:2])[..., None])
+    if p['canvas'] > 0:                  # off: a grain fixed on screen reads as a screen door in pans
+        out = out * (1 + p['canvas'] * canvas_texture(*out.shape[:2])[..., None])
     return np.clip(out, 0, 1)
 
 
