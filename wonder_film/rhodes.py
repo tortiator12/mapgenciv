@@ -619,7 +619,7 @@ def build_statue(S, coll):
     for x0, y0, z0, x1, y1, z1, bz in d['bars']:
         if abs(z1 - z0) < 1e-3 and math.hypot(x1 - x0, y1 - y0) < 1e-3:
             continue
-        ab.add(G.beam([x0, y0, z0], [x1, y1, z1], 0.17), t_on=bz, mat=0)
+        ab.add(G.beam([x0, y0, z0], [x1, y1, z1], 0.22), t_on=bz, mat=0)
     ab.finalize()
     S.arm_batch = ab
     S.arm_obj = SC.link(bpy.data.objects.new('Armature', bpy.data.meshes.new('Armature')), coll)
@@ -1248,7 +1248,7 @@ def build_cargo(S):
 
 
 CARGO = dict(
-    copper=[(7.0, -141.0), (7.2, -137.2), (4.2, -139.4), (9.4, -133.0)],
+    copper=[(4.0, -143.5), (4.2, -146.8), (1.2, -145.0), (5.6, -131.5)],
     tin=[(4.4, -133.4)],
     iron=[(8.2, -126.0, math.pi / 2), (5.4, -125.2, math.pi / 2), (2.6, -127.0, math.pi / 2 + 0.1)],
     timbers=[(-6.5, -146.0, math.pi / 2, 3), (-7.5, -131.0, math.pi / 2 + 0.03, 2)],

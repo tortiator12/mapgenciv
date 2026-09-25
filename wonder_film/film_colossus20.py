@@ -79,8 +79,9 @@ class Lapse:
     def hour(self, v):
         return TL._pchip([k[0] for k in self.keys], [k[1] for k in self.keys], v)
 
-    def tc(self, v):
-        return self.tc0 + (self.tc1 - self.tc0) * float(np.interp(v, self.V, self.W))
+    def tc(self, v, ease=1.0):
+        w = float(np.interp(v, self.V, self.W))
+        return self.tc0 + (self.tc1 - self.tc0) * w ** ease
 
 
 # S2: a day's work, a short night of forge fires, the next morning
@@ -103,6 +104,7 @@ def build(res=(1280, 720)):
     L.build_gulls(S, n=14)
     L.build_ship(S)
     life.build(S, L)
+    _emissive_smoke(S)
     life.build_clutter(S, CLUTTER)
     build_oars(S)
     build_torches(S)
@@ -160,6 +162,85 @@ def _compat(S):
     me = SC.hex_mesh('BargeCargo', cg, np.ones(len(cg.t_on), bool), [bpy.data.materials['Copper'], S.m_iron])
     for h, r, c in S.barges:
         c.data = me
+
+
+def mat_smoke_lit(name, lo, hi):
+    """Smoke puff lit by a per-frame value instead of by light samples: at the
+    film's six samples a diffuse/translucent puff breaks up into dark specks.
+    Same soft falloff and evolving noise as life.mat_smoke; the top of each
+    puff a little brighter, as if lit from above."""
+    m, nb, out = SC.new_material(name)
+    tc = nb.new('ShaderNodeTexCoord')
+    u, v, _ = nb.sep(tc.outputs['UV'])
+    du, dv = nb.math('SUBTRACT', u, 0.5), nb.math('SUBTRACT', v, 0.5)
+    r = nb.math('MULTIPLY', nb.math('SQRT', nb.math('ADD', nb.math('MULTIPLY', du, du), nb.math('MULTIPLY', dv, dv))), 2.0)
+    fall = nb.smooth(1.0, 0.05, r)
+    oi = nb.new('ShaderNodeObjectInfo')
+    dens, glow, seed = nb.sep(oi.outputs['Color'])
+    age = oi.outputs['Alpha']
+    w = nb.math('ADD', nb.math('MULTIPLY', seed, 37.0), nb.math('MULTIPLY', age, 1.3))
+    # coarse noise only: fine octaves on small, distant puffs turn into pixel specks
+    n1 = nb.noise(nb.comb(u, v, 0.0), 1.3, 1.2, 0.45, w=w, dims='4D').outputs['Fac']
+    body = nb.smooth(0.18, 0.72, nb.math('ADD', n1, nb.math('MULTIPLY', fall, 0.3)))
+    alpha = nb.math('MULTIPLY', nb.math('MULTIPLY', nb.math('POWER', fall, 0.7), body), dens, clamp=True)
+    col = nb.mix(nb.math('MULTIPLY', n1, 0.6), tuple(lo) + (1,), tuple(hi) + (1,))
+    shade = nb.math('ADD', 0.72, nb.math('MULTIPLY', v, 0.4))
+    light = nb.rgb((1.0, 1.0, 1.0), 'smoke_light')
+    em = nb.new('ShaderNodeEmission')
+    nb.feed(em.inputs['Color'], SC.mul_col(nb, SC.mul_col(nb, col, light), nb.comb(shade, shade, shade)))
+    em.inputs['Strength'].default_value = 1.0
+    fire = nb.new('ShaderNodeEmission')
+    fire.inputs['Color'].default_value = (1.0, 0.45, 0.14, 1)
+    nb.feed(fire.inputs['Strength'], nb.math('MULTIPLY', glow, 6.0))
+    add = nb.new('ShaderNodeAddShader')
+    nb.feed(add.inputs[0], em.outputs[0])
+    nb.feed(add.inputs[1], fire.outputs[0])
+    tp = nb.new('ShaderNodeBsdfTransparent')
+    mix = nb.new('ShaderNodeMixShader')
+    nb.feed(mix.inputs[0], alpha)
+    nb.feed(mix.inputs[1], tp.outputs[0])
+    nb.feed(mix.inputs[2], add.outputs[0])
+    nb.feed(out.inputs['Surface'], mix.outputs[0])
+    return m
+
+
+def _emissive_smoke(S):
+    S.m_smoke_lit = mat_smoke_lit('SmokeLit', (0.62, 0.60, 0.57), (0.80, 0.78, 0.74))
+    S.m_dust_lit = mat_smoke_lit('DustLit', (0.52, 0.42, 0.30), (0.70, 0.58, 0.42))
+    S.smoke[0].data.materials[0] = S.m_smoke_lit
+    S.dust[0].data.materials[0] = S.m_dust_lit
+
+
+def smoke(S, plumes, clock, kind=0):
+    """Puffs of `plumes` (life.Plume) for postsmoke.py: the same rise, drift and
+    spread as life.pose_smoke, but drawn by the stylizer (see postsmoke.py)."""
+    for pl in plumes:
+        for i in range(pl.n):
+            f = (clock / pl.life + (i + 0.37 * pl.seed) / pl.n) % 1.0
+            a = f * pl.life
+            h = pl.rise * a * (1.0 - 0.25 * f)
+            sway = 0.25 * math.sin(0.7 * a + i * 2.1 + pl.seed) * (0.3 + a * 0.2)
+            p = pl.pos + np.array([0, 0, h]) + pl.wind * (pl.drift * a ** 1.15) \
+                + np.array([-pl.wind[1], pl.wind[0], 0]) * sway
+            dens = pl.dens * life.smoothstep(0.0, 0.08, f) * (1.0 - f) ** 1.6
+            if dens < 0.01:
+                continue
+            glow = pl.glow * math.exp(-h / 6.0)
+            S.post_smoke.append([float(p[0]), float(p[1]), float(p[2]), float(pl.size0 + pl.grow * a), float(dens),
+                                 float(glow), float((pl.seed * 0.137 + i * 0.0731) % 1.0), float(f), int(kind)])
+
+
+def smoke_light(S, hour, fires=0.0):
+    """Radiance of a sunlit puff at this hour: sun (warm when low) and sky; at night only the fires."""
+    el, _ = TL.sun_angles(hour)
+    day = TL.smoothstep(math.radians(-7), math.radians(5), el)
+    sun = S.sun.data.color if not S.sun.hide_render else (0.0, 0.0, 0.0)
+    e_sun = S.sun.data.energy * 0.6 if not S.sun.hide_render else 0.0   # a puff always has a sunlit side
+    e_sky = 1.3 * day + 0.04
+    rgb = [(e_sun * sun[i] + e_sky * (0.85, 0.92, 1.0)[i]) / math.pi + 0.25 * fires * (1.0, 0.5, 0.2)[i] for i in range(3)]
+    for m in (S.m_smoke_lit, S.m_dust_lit):
+        m.node_tree.nodes['smoke_light'].outputs[0].default_value = tuple(rgb) + (1.0,)
+    S.smoke_rgb = [float(c) for c in rgb]
 
 
 GALLEY_OARS = 11           # a side
@@ -307,6 +388,7 @@ def hide_extras(S):
     RH.show_cargo(S, False)
     RH.pose_altar(S, -1.0, 0.0)
     hide_torches(S)
+    S.post_smoke = []
 
 
 def place_cart(S, i, pos, heading, dist, z):
@@ -443,12 +525,12 @@ def site_torches(M, phi_top):
     return spots
 
 
-def site_plumes(S, M, working, fast=1.0, dust=False):
+def site_plumes(S, M, working, fast=1.0, glow=0.0):
     pl = []
     if working and M > RH.GROUND + 0.5:
         for i, (x, y, hd) in enumerate(furnace_spots(S, M)):
             pl.append(life.Plume((x, y, M + 1.9), n=8, life=9.0 / fast, rise=1.4 * fast, drift=1.6 * fast, size0=0.7,
-                                 grow=0.55, dens=0.85, seed=i + 1))
+                                 grow=0.55, dens=0.85, glow=glow, seed=i + 1))
     for i, (x, y) in enumerate(((-7.0, -108.0),)):
         pl.append(life.Plume((x, y, RH.GROUND + 3.0), n=6, life=9.0 / fast, rise=1.2 * fast, drift=1.4 * fast, size0=0.7,
                              grow=0.5, dens=0.6, seed=9 + i))
@@ -456,14 +538,14 @@ def site_plumes(S, M, working, fast=1.0, dust=False):
 
 
 # ================================================================== shots
-CLUTTER = dict(amphorae=(10.8, -147.5, RH.GROUND, math.pi / 2), jars=(-1.0, -135.0, RH.GROUND, 0.0),
-               baskets=(10.0, -130.5, RH.GROUND, 0.0), coils=(11.6, -144.0, RH.GROUND, 0.0),
+CLUTTER = dict(amphorae=(10.8, -153.0, RH.GROUND, math.pi / 2), jars=(-1.0, -135.0, RH.GROUND, 0.0),
+               baskets=(10.0, -130.5, RH.GROUND, 0.0), coils=(11.6, -150.0, RH.GROUND, 0.0),
                levers=(-3.6, -118.0, RH.GROUND, math.pi / 2), awning=(2.4, -131.0, RH.GROUND, 0.0))
 S1_CAM0 = ((27.0, -178.0, 6.2), (4.0, -125.0, 3.4))
 S1_CAM1 = ((25.3, -171.0, 6.2), (2.0, -118.0, 3.4))
-QUAY_CRANE = (10.4, -117.6, RH.GROUND)
-SHIP_S1 = (17.9, -141.0)
-LIGHTER_S1 = (17.4, -117.5)
+QUAY_CRANE = (10.4, -139.0, RH.GROUND)
+SHIP_S1 = (17.9, -112.0)
+LIGHTER_S1 = (17.4, -139.5)
 
 
 def shot_S1(S, v):
@@ -475,6 +557,7 @@ def shot_S1(S, v):
     meta = RH.pose(S, v, tc=0.12, hour=hour, sea_t=40.0 + v, water_t=16.0 + 0.4 * v, cloud_t=hour * 0.75,
                    shadow_t=hour * 124.0, cover=0.35, cloud_gain=7.0, shadow_cover=0.3, hdri=1.0,
                    hdri_rot=S1_SKY + 0.002 * v, cam=cam)
+    smoke_light(S, hour)
     RH.show_cargo(S, True, t=v)
     life.show_clutter(S, True)
     # the merchantman alongside, her crew passing out copper; the lighter at the crane
@@ -507,8 +590,8 @@ def shot_S1(S, v):
         ((-2.0, -112.0), math.radians(-90), 1.1, 0.8, 'carry'), ((4.5, -104.0), math.radians(95), 1.2, 1.5, 'walk'),
         ((-4.0, -98.0), math.radians(-80), 1.0, 2.9, 'walk'), ((0.0, -160.0), math.radians(90), 1.2, 0.6, 'walk')],
         v, lambda x, y: z)
-    busy = [(12.9, -120.5, 200, 'haul'), (12.2, -122.0, 190, 'haul'), (14.3, -114.8, 240, 'point'),
-            (7.6, -143.3, 90, 'stand'), (5.4, -141.8, 30, 'hammer'), (8.6, -135.5, 150, 'stand'),
+    busy = [(12.9, -142.0, 200, 'haul'), (12.2, -143.5, 190, 'haul'), (14.3, -136.3, 240, 'point'),
+            (5.6, -143.0, 90, 'stand'), (2.8, -146.0, 30, 'hammer'), (6.8, -132.5, 150, 'stand'),
             (2.4, -131.8, 180, 'scribe'), (3.8, -130.0, 200, 'point'),
             (-8.2, -108.5, 0, 'hammer'), (-6.0, -106.4, 250, 'stand'),
             (-4.0, -143.0, 80, 'haul'), (-3.4, -140.5, 75, 'haul'), (-9.0, -133.0, 20, 'point'),
@@ -518,7 +601,7 @@ def shot_S1(S, v):
         k += 1
     # ox carts: one taking copper to the site, one being loaded, one coming back
     place_cart(S, 0, (-1.2, -128.0 + 0.9 * v), math.pi / 2, 0.9 * v, z)
-    place_cart(S, 1, (5.2, -145.8), math.pi / 2, 0.0, z)
+    place_cart(S, 1, (-1.0, -151.0), math.pi / 2, 0.0, z)
     place_cart(S, 2, (1.6, -100.0 - 0.9 * v), -math.pi / 2, 0.9 * v, z)
     # boats in the harbour
     d0 = life.skiff_distance(v)
@@ -531,8 +614,8 @@ def shot_S1(S, v):
     L.pose_gulls(S, v, (16.0, -136.0), 10, z0=RH.GROUND)
     mast = S.ship_root.matrix_world @ Vector((S.ship_mast_x, 0.0, S.ship_masthead + 0.2))
     life.pose_pennants(S, [((tip.x, tip.y, tip.z + 0.2), 2.2, 0.45, 0), (tuple(mast), 2.6, 0.5, 1)], v)
-    life.pose_smoke(S, [life.Plume((RH.SMITHY[0] + 0.4, RH.SMITHY[1] + 0.9, RH.GROUND + 3.0), n=8, life=10.0, rise=1.1,
-                                   drift=1.3, size0=0.7, grow=0.5, dens=0.75, seed=9)], 40.0 + v, cam[0])
+    smoke(S, [life.Plume((RH.SMITHY[0] + 0.4, RH.SMITHY[1] + 0.9, RH.GROUND + 3.0), n=9, life=11.0, rise=1.0,
+                         drift=1.3, size0=1.3, grow=0.7, dens=0.6, seed=9)], 40.0 + v)
     for i in range(k, len(S.people)):
         S.people[i].hide_render = True
     meta.update(stars=0.0)
@@ -542,20 +625,22 @@ def shot_S1(S, v):
 def s2_cam(v, tc):
     u = TL.ease_io((v - 3.0) / 5.0) * 0.8 + 0.2 * (v - 3.0) / 5.0
     M = RH.mound_top(tc)
-    tz = 12.0 + 0.55 * (M - RH.GROUND)
+    tz = 10.0 + 0.62 * (M - RH.GROUND)
     b = 232.0 - 34.0 * u
-    return bearing_pos(b, 178.0, 44.0 + 0.3 * (M - RH.GROUND)), (0.0, 0.0, tz), 36.0
+    dist = 172.0 - 40.0 * u
+    return bearing_pos(b, dist, 40.0 + 0.32 * (M - RH.GROUND)), (0.0, 0.0, tz), 36.0 + 4.0 * u
 
 
 def shot_S2(S, v):
     lp = S2_LAPSE
     hour = lp.hour(v)
-    tc = lp.tc(v)
+    tc = lp.tc(v, ease=1.6)            # the pedestal and the legs stay a little longer in view
     cam = s2_cam(v, tc)
     meta = RH.pose(S, v, tc=tc, hour=hour, sea_t=60.0 + v * 6.0, water_t=30.0 + v * 3.0, cloud_t=hour * 0.9,
                    shadow_t=hour * 200.0, cover=0.3 + 0.06 * math.sin(v), cloud_gain=7.0, shadow_cover=0.32,
                    hdri=1.0, hdri_rot=S2_SKY + 0.05 * (v - 3.0), sky_log=True, cam=cam)
     day = meta['day']
+    smoke_light(S, hour, fires=1.0 - day)
     M = meta['mound']
     hop_t = 2.0 * v
     k = site_life(S, tc, hop_t, day, v, M, meta['level'])
@@ -575,7 +660,7 @@ def shot_S2(S, v):
         rope.matrix_world = Matrix.Translation(tip) @ Matrix.Diagonal((1, 1, max(tip.z - lz, 0.3), 1))
     phi_top = RH.ramp_phi_max(M) if M > RH.GROUND + 0.5 else 0.0
     pose_torches(S, site_torches(M, phi_top), TL.smoothstep(0.55, 0.1, day), v)
-    life.pose_smoke(S, site_plumes(S, M, working, fast=3.0), 100.0 + v * 3.0, cam[0])
+    smoke(S, site_plumes(S, M, working, fast=3.0, glow=0.6 * (1.0 - day)), 100.0 + v * 3.0)
     life.pose_anchored(S, [(90.0, -90.0, math.radians(100)), (150.0, -150.0, math.radians(80)), (200.0, -40.0, 1.2)], v,
                        lamp=1.0 - day)
     for i in range(k, len(S.people)):
@@ -585,7 +670,7 @@ def shot_S2(S, v):
 
 
 S3_TC = 8.86                       # the last plates go on the top of the head; the crown comes next
-S3_FURNACES = [(-10.8, -1.4, math.radians(20.0)), (-5.0, -5.5, math.radians(80.0))]
+S3_FURNACES = [(-10.8, -1.4, math.radians(-120.0)), (-5.0, -5.5, math.radians(120.0))]
 S3_CAM0 = ((-15.5, -7.3, 2.2), (0.0, 1.5, 4.8))
 S3_CAM1 = ((-14.9, -6.2, 2.3), (-0.1, 1.8, 4.9))
 
@@ -602,6 +687,7 @@ def shot_S3(S, v):
     meta = RH.pose(S, v, tc=S3_TC, hour=hour, sea_t=90.0 + v, water_t=40.0 + 0.4 * v, cloud_t=hour * 0.75,
                    shadow_t=hour * 124.0, cover=0.3, cloud_gain=7.0, shadow_cover=0.3, hdri=1.0,
                    hdri_rot=S3_SKY + 0.002 * v, cam=cam)
+    smoke_light(S, hour, fires=0.3)
     RH.pose_foundry(S, S3_FURNACES, M, v, glow=0.45, pump=True, stock=(-8.6, -9.6, math.radians(30.0)),
                     charcoal=(-12.9, 1.6), light=0.2)
     k = 0
@@ -613,8 +699,8 @@ def shot_S3(S, v):
             ph = v * 2 * math.pi * 0.8 + j * math.pi + i
             L.place_person(S, k, (p.x - 0.2, p.y, p.z + 0.45 + 0.2 * (0.5 + 0.5 * math.cos(ph))), hd, 'stand', 0.0)
             k += 1
-        p = Mw @ Vector((1.4, 1.0, 0.0))
-        L.place_person(S, k, (p.x, p.y, M), hd + math.pi, 'point' if i == 0 else 'haul', 2.0 * v + i)
+        mx, my = ((-10.0, 0.9), (-6.2, -7.4))[i]               # the furnace masters, off the line of sight
+        L.place_person(S, k, (mx, my, M), math.atan2(y - my, x - mx), 'point' if i == 0 else 'haul', 2.0 * v + i)
         k += 1
     L.place_person(S, k, (-9.0, 2.6, M), math.radians(-70), 'carry', 2.4 * v)            # charcoal in a basket
     k += 1
@@ -632,9 +718,9 @@ def shot_S3(S, v):
         r = RH.SCAF_R - 0.45
         L.place_person(S, k, (cx + r * math.cos(a), cy + r * math.sin(a), zl[li - 1] + 0.14), a + math.pi, mode, 3.0 * v + j)
         k += 1
-    pl = [life.Plume((x, y, M + 1.95), n=10, life=6.0, rise=1.5, drift=1.6, size0=0.22, grow=0.22, dens=0.4, seed=i + 1)
+    pl = [life.Plume((x, y, M + 1.95), n=12, life=6.0, rise=1.5, drift=1.6, size0=0.4, grow=0.42, dens=0.5, seed=i + 1)
           for i, (x, y, hd) in enumerate(S3_FURNACES)]
-    life.pose_smoke(S, pl, 50.0 + v, cam[0])
+    smoke(S, pl, 50.0 + v)
     L.pose_gulls(S, v, (-6.0, 4.0), 4, z0=M + 6.0)
     for i in range(k, len(S.people)):
         S.people[i].hide_render = True
@@ -652,6 +738,7 @@ def shot_S4(S, v):
     meta = RH.pose(S, v, tc=tc, hour=hour, sea_t=120.0 + v * 5.0, water_t=60.0 + v * 2.5, cloud_t=hour * 0.9,
                    shadow_t=hour * 200.0, cover=0.28, cloud_gain=7.0, shadow_cover=0.3, hdri=1.0,
                    hdri_rot=S4_SKY + 0.04 * (v - 11.5), cam=cam)
+    smoke_light(S, hour)
     M = meta['mound']
     hop_t = 2.0 * v
     k = 0
@@ -663,9 +750,9 @@ def shot_S4(S, v):
         rt = RH.cone_r(M) - 2.0
         for i in range(3):
             a = 2 * math.pi * SC.hop(i + 1300, hop_t, 1.0)
-            pl.append(life.Plume((rt * math.cos(a), rt * math.sin(a), M + 0.4), n=5, life=4.0, rise=0.6, drift=1.2,
-                                 size0=0.9, grow=0.5, dens=0.4, seed=i + 20))
-    life.pose_smoke(S, pl, 70.0 + v * 3.0, cam[0], pool=S.dust)
+            pl.append(life.Plume((rt * math.cos(a), rt * math.sin(a), M + 0.4), n=6, life=4.0, rise=0.7, drift=1.4,
+                                 size0=2.0, grow=1.0, dens=0.35, seed=i + 20))
+    smoke(S, pl, 70.0 + v * 3.0, kind=1)
     life.pose_anchored(S, [(90.0, -90.0, math.radians(100)), (150.0, -150.0, math.radians(80)), (200.0, -40.0, 1.2)], v)
     for i in range(k, len(S.people)):
         S.people[i].hide_render = True
@@ -675,7 +762,7 @@ def shot_S4(S, v):
 
 S5_CAM0 = ((-205.0, 148.0, 5.5), (-2.0, -2.0, 23.0))
 S5_CAM1 = ((-196.0, 136.0, 5.3), (-2.0, -2.0, 23.0))
-GALLEY0 = (-143.0, 70.0)
+GALLEY0 = (-155.0, 79.0)
 GALLEY_HD = math.radians(53.5)
 GALLEY_V = 2.6
 
@@ -689,6 +776,7 @@ def shot_S5(S, v):
     meta = RH.pose(S, v, tc=14.0, hour=hour, sea_t=150.0 + v, water_t=70.0 + 0.4 * v, cloud_t=hour * 0.75,
                    shadow_t=hour * 124.0, cover=0.3, cloud_gain=7.0, shadow_cover=0.3, hdri=1.0,
                    hdri_rot=S5_SKY + 0.002 * v, cam=cam)
+    smoke_light(S, hour, fires=0.4)
     t = v - 15.0
     d = GALLEY_V * t + 0.35 * math.sin(2 * math.pi * t / GALLEY_T)       # surges with each stroke
     pos = (GALLEY0[0] + math.cos(GALLEY_HD) * d, GALLEY0[1] + math.sin(GALLEY_HD) * d)
@@ -716,8 +804,8 @@ def shot_S5(S, v):
         x, y = 44.0 - rng.uniform(0, 4), -20.0 + j * 5.0
         L.place_person(S, k, (x, y, RH.GROUND), math.pi, 'stand' if j % 3 else 'walk', v + j)
         k += 1
-    life.pose_smoke(S, [life.Plume((ax, ay, RH.GROUND + 2.8), n=10, life=10.0, rise=1.1, drift=1.2, size0=0.5,
-                                   grow=0.55, dens=0.7, seed=31)], 60.0 + v, cam[0])
+    smoke(S, [life.Plume((ax, ay, RH.GROUND + 2.8), n=10, life=10.0, rise=1.1, drift=1.2, size0=0.5,
+                         grow=0.55, dens=0.7, glow=0.25, seed=31)], 60.0 + v)
     life.pose_anchored(S, [(95.0, -80.0, math.radians(100)), (150.0, -140.0, math.radians(80)), (210.0, -30.0, 1.2)], v,
                        lamp=0.4)
     L.pose_gulls(S, v, (-150.0, 100.0), 9, z0=-2.0)
@@ -738,5 +826,5 @@ def pose(S, f):
     if name != 'S1':
         L.pose_treadwheel(S, 0.8 * v)
     life.apply_wakes(S)
-    meta.update(shot=name, shot_t=v - a, t=v)
+    meta.update(shot=name, shot_t=v - a, t=v, smoke=S.post_smoke, smoke_light=getattr(S, 'smoke_rgb', [1.0, 1.0, 1.0]))
     return meta

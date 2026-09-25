@@ -21,6 +21,7 @@ import numpy as np
 import OpenEXR
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import postsmoke  # noqa: E402
 import timeline as TL  # noqa: E402
 import titles  # noqa: E402
 
@@ -380,6 +381,8 @@ def stylize_paint(rgb, Z, ID, meta, exposure, frame, paint=True):
     s = H / 720.0
     day = meta['day']
     night = 1.0 - day
+    if meta.get('smoke'):                 # smoke and dust handed over by the film (postsmoke.py)
+        rgb = postsmoke.draw(rgb.copy(), Z, meta)
 
     sky = ~np.isfinite(Z) | (Z > 1e8)
     Zc = np.where(sky, 0, Z)

@@ -142,6 +142,54 @@ venv/bin/python wonder_film/render.py --film lighthouse20 --out /tmp/l20 --frame
 venv/bin/python wonder_film/stylize.py --inp /tmp/l20 --out /tmp/l20png --look paint --no-titles
 ```
 
+## Civ1 game film: *Koloss von Rhodos* (20 s)
+
+`wunderfilm_03_colossus`, the second film of the storyboard, in the same look
+as the lighthouse, but a world of its own (`rhodes.py`): the harbour of
+Rhodes with its moles and ship sheds, the town on the grid of Hippodamus with
+tiled roofs, cypresses, pines and olives on the hills, the temple of Helios on
+the acropolis.
+
+| shot | time | what you see | clock |
+|---|---|---|---|
+| S1 | 0–3 s | the harbour mole, morning: a merchantman alongside and a lighter at the treadwheel crane unload copper; copper and tin ingots, bundles of iron bars and the broken-up siege engines of Demetrios (squared timbers, the great wheels, iron armour plates) on the mole; a smithy smokes, ox carts, a scribe, rowing boats, gulls | real time |
+| S2 | 3–8 s | slow orbit: the marble pedestal course by course, then the legs on their iron frame, weighted with stone; the mound of earth rises round the figure layer by layer with a spiral ramp, carriers and carts on the ramp, trestles and furnaces on its top; a short night of forge fires and torches | time-lapse |
+| S3 | 8–11.5 s | on the top of the mound, afternoon: two shaft furnaces with glowing mouths and bag bellows, charcoal, a stack of plates; the bronze head with the hand shading the eyes rises from the earth, the last plates go on the top of the head from the scaffold behind it | real time |
+| S4 | 11.5–15 s | from the sea: the scaffold is struck, then the mound is carried away in baskets, top first, and the Colossus appears from the head down | time-lapse |
+| S5 | 15–20 s | sunset: a merchant galley rows past towards the harbour mouth, a sacrifice burns on the altar before the pedestal, gulls | real time |
+
+The statue is sculpted, not skinned: `sculpt.py` blends 83
+primitives (tapered limbs, muscle masses, a Greek profile, curls, pipe
+folds of the chlamys) with smooth minima into one signed-distance field and
+extracts the surface with marching cubes. `helios.py` derives everything
+else from that field: bronze plates in horizontal courses of 1.2 m (Voronoi
+cells along each course, so the vertical joints stagger), a seam distance and
+a tone per plate for the shader (dark joints, rivet rows, hammered sheet),
+the iron armature (rings of the cross-sections 0.28 m inside the skin, joined
+by uprights) and the stone fill in the legs and the drapery. The result is
+cached in `build/cache`.
+
+How it was built, after Philon of Byzantium: the figure was cast part by part
+from the feet up, and earth was heaped round it so that the work always stood
+on the top of the mound; when it was finished, the mound was taken away. In
+the film the mound is a fixed cone (55°, held by timber cribs every 1.6 m)
+filled in 1-m layers, with a spiral ramp at 1 : 7 cut into its flank; its top
+stays 4 m below the finished bronze (trestles bridge the gap), and it stops
+at the chest, where a scaffold behind the head takes over. The mound comes
+down in whole layers, top first, the scaffold before it.
+
+Deliberate correction: the Colossus did not straddle the harbour mouth (a
+medieval legend, and impossible for the statics). Here it stands on the head
+of the mole, legs close together, with the cloak falling to the base as a
+third support, and looks out to sea.
+
+```bash
+PYTHON=venv/bin/python wonder_film/make_colossus20.sh                 # all 480 frames
+venv/bin/python wonder_film/render.py --film colossus20 --out /tmp/c20 --frames 36,120,230,330,420 \
+    --res 640x360 --no-lines                                              # quick look
+venv/bin/python wonder_film/stylize.py --inp /tmp/c20 --out /tmp/c20png --look paint --no-titles --film colossus20
+```
+
 ## Historical basis
 
 - Built c. 280–247 BC under the first Ptolemies. The architect was
