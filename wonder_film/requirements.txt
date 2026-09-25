@@ -7,3 +7,4 @@ OpenEXR>=3.3
 Pillow>=10.0
 fonttools>=4.50     # only needed to re-convert the bundled fonts
 # system: ffmpeg (libx264 + aac); for headless EGL: libegl1 libegl-mesa0
+scikit-image>=0.22

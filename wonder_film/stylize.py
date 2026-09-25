@@ -455,7 +455,14 @@ def main():
     ap.add_argument('--no-titles', action='store_true')
     ap.add_argument('--look', default='ink', choices=['ink', 'paint', 'clean'])
     ap.add_argument('--fade-in', type=float, default=0.0)
+    ap.add_argument('--film', default=None, help='film module (film_<name>.py) whose GRADE overrides the grade per shot')
     args = ap.parse_args()
+    if args.film:
+        import importlib
+        grade = getattr(importlib.import_module(f'film_{args.film}'), 'GRADE', {})
+        WONDER['warm'].update(grade.get('warm', {}))
+        WONDER['gain'].update(grade.get('gain', {}))
+        DUST_HAZE.update(grade.get('dust', {}))
     os.makedirs(args.out, exist_ok=True)
     metas = sorted(glob.glob(os.path.join(args.inp, 'meta_*.json')))
     frames = [int(os.path.basename(m)[5:9]) for m in metas]

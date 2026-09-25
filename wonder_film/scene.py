@@ -917,14 +917,14 @@ def build_terrain(coll):
     return objs
 
 
-def shore_foam_image():
-    """Distance-to-shore field around the island, used for surf foam."""
+def shore_foam_image(height_fn=None, extent=(-1100.0, 300.0, -450.0, 450.0), res=1.0):
+    """Distance-to-shore field around the land (default: the Pharos island), used for surf foam."""
     from scipy.ndimage import distance_transform_edt
-    x0, x1, y0, y1, res = -1100.0, 300.0, -450.0, 450.0, 1.0
+    x0, x1, y0, y1 = extent
     xs = np.arange(x0, x1, res)
     ys = np.arange(y0, y1, res)
     X, Y = np.meshgrid(xs, ys)
-    land = island_height(X, Y) > 0.0
+    land = (height_fn or island_height)(X, Y) > 0.0
     d = distance_transform_edt(~land) * res
     foam = np.exp(-d / 6.0) * (~land)
     img = bpy.data.images.new('ShoreFoam', len(xs), len(ys), float_buffer=True)
@@ -1006,9 +1006,11 @@ def mat_water(foam_img, extent):
     return m
 
 
-def build_sea(coll):
-    img, extent = shore_foam_image()
-    V, Q = G.polar_mesh(30.0, 520.0, 2.2, 16000.0, 1.05, 1150)
+def build_sea(coll, height_fn=None, extent=(-1100.0, 300.0, -450.0, 450.0), center=(0.0, 0.0), r0=30.0):
+    img, extent = shore_foam_image(height_fn, extent)
+    V, Q = G.polar_mesh(r0, 520.0, 2.2, 16000.0, 1.05, 1150)
+    V[:, 0] += center[0]
+    V[:, 1] += center[1]
     me = mesh_from_arrays('Sea', V, Q, mats=[mat_water(img, extent)], smooth=True)
     sea = link(bpy.data.objects.new('Sea', me), coll)
     sea.pass_index = PASS['water']
@@ -2368,6 +2370,62 @@ def statue_track(p):
     return Vector((0.0, 0.0, lift_z + (STATUE_Z - lift_z) * q)), THETA_CENTER
 
 
+def pose_environment(S, t, hour, **kw):
+    """Sun, moon, sky (painted or photographed), clouds and their shadows, the sea
+    and the city lights for hour `hour` at film time t.  Shared by every film
+    that uses this module's world, sea and sun; see pose() for the keywords."""
+    el, az = TL.sun_angles(hour)
+    el_deg = math.degrees(el)
+    day = TL.smoothstep(math.radians(-7), math.radians(5), el)
+    night = 1.0 - day
+    sdir = TL.sun_dir(hour)
+    mdir = TL.moon_dir(hour)
+    S.sun.rotation_euler = Vector(sdir).to_track_quat('Z', 'Y').to_euler()
+    S.moon.rotation_euler = Vector(mdir).to_track_quat('Z', 'Y').to_euler()
+    sun_k = TL.smoothstep(-1.5, 10.0, el_deg)
+    warm = TL.smoothstep(2.0, 24.0, el_deg)
+    S.sun.data.energy = kw.get('sun_energy', 6.5) * sun_k
+    S.sun.data.color = (1.0, 0.52 + 0.4 * warm, 0.28 + 0.6 * warm)
+    S.sun.hide_render = sun_k <= 0.0
+    moon_up = max(0.0, mdir[2])
+    moon_k = kw.get('moon', 1.0)
+    S.moon.data.energy = 0.42 * night * TL.smoothstep(0.0, 0.25, moon_up) * kw.get('moon_light', moon_k)
+    S.moon.hide_render = S.moon.data.energy <= 1e-4
+    zen, hor, glow, cl_lit, cl_dark = sky_palette(el_deg, S.look, log=kw.get('sky_log', False))
+    nt = S.world.node_tree.nodes
+    for nm, col in (('zenith', zen), ('horizon', hor), ('sunglow', glow), ('cloud_lit', cl_lit),
+                    ('cloud_dark', cl_dark)):
+        nt[nm].outputs[0].default_value = col + (1.0,)
+    for i, v in enumerate(sdir):
+        nt['sun_dir'].inputs[i].default_value = float(v)
+    for i, v in enumerate(mdir):
+        nt['moon_dir'].inputs[i].default_value = float(v)
+    nt['cloud_time'].outputs[0].default_value = kw.get('cloud_t', t * 1.6)
+    nt['cloud_gain'].outputs[0].default_value = kw.get('cloud_gain', 3.2)
+    nt['moon'].outputs[0].default_value = 6.0 * night * moon_k
+    nt['sun_disc'].outputs[0].default_value = 30.0 * TL.smoothstep(-1.0, 1.0, el_deg)
+    if 'hdri_k' in nt:
+        nt['hdri_k'].outputs[0].default_value = kw.get('hdri', 0.0)
+        nt['hdri_rot'].outputs[0].default_value = kw.get('hdri_rot', 0.0)
+        zd, hd = sky_palette(45.0, S.look)[:2]
+        w = 0.5 + 0.5 * TL.smoothstep(3.0, -3.0, el_deg)       # half the warmth by day, all of the dark by night
+        for name, now, day_ in (('hdri_tint', zen, zd), ('hdri_tint_h', hor, hd)):
+            nt[name].outputs[0].default_value = tuple((n / d) ** w for n, d in zip(now, day_)) + (1.0,)
+    nt['cover'].outputs[0].default_value = kw.get(
+        'cover', 0.6 + 0.1 * math.sin(t * 0.37) - 0.16 * TL.smoothstep(24.0, 27.0, t))
+
+    if getattr(S, 'm_cshadow', None) is not None:
+        S.m_cshadow.node_tree.nodes['shadow_time'].outputs[0].default_value = kw.get('shadow_t', t * 260.0)
+        S.m_cshadow.node_tree.nodes['shadow_cover'].outputs[0].default_value = kw.get(
+            'shadow_cover', 0.40 + 0.08 * math.sin(t * 0.37))
+    # --- water, city lights, ocean
+    S.ocean.time = kw.get('sea_t', t * 2.2)
+    S.sea.data.materials[0].node_tree.nodes['water_time'].outputs[0].default_value = kw.get('water_t', t * 0.9)
+    if getattr(S, 'm_city', None) is not None:
+        S.m_city.node_tree.nodes['city_lights'].outputs[0].default_value = 6.0 * night
+    return zen, hor
+
+
 def pose(S, t, **kw):
     """Set the scene for video time t of the 30-s film.
 
@@ -2390,7 +2448,6 @@ def pose(S, t, **kw):
     el, az = TL.sun_angles(hour)
     el_deg = math.degrees(el)
     day = TL.smoothstep(math.radians(-7), math.radians(5), el)
-    night = 1.0 - day
     H = S.sched.height(tc)
 
     # --- masonry & timber
@@ -2596,50 +2653,7 @@ def pose(S, t, **kw):
         h.hide_render = r.hide_render = not active_b
         cg.hide_render = not (active_b and loaded)
 
-    # --- sun, moon, sky
-    sdir = TL.sun_dir(hour)
-    mdir = TL.moon_dir(hour)
-    S.sun.rotation_euler = Vector(sdir).to_track_quat('Z', 'Y').to_euler()
-    S.moon.rotation_euler = Vector(mdir).to_track_quat('Z', 'Y').to_euler()
-    sun_k = TL.smoothstep(-1.5, 10.0, el_deg)
-    warm = TL.smoothstep(2.0, 24.0, el_deg)
-    S.sun.data.energy = kw.get('sun_energy', 6.5) * sun_k
-    S.sun.data.color = (1.0, 0.52 + 0.4 * warm, 0.28 + 0.6 * warm)
-    S.sun.hide_render = sun_k <= 0.0
-    moon_up = max(0.0, mdir[2])
-    moon_k = kw.get('moon', 1.0)
-    S.moon.data.energy = 0.42 * night * TL.smoothstep(0.0, 0.25, moon_up) * kw.get('moon_light', moon_k)
-    S.moon.hide_render = S.moon.data.energy <= 1e-4
-    zen, hor, glow, cl_lit, cl_dark = sky_palette(el_deg, S.look, log=kw.get('sky_log', False))
-    nt = S.world.node_tree.nodes
-    for nm, col in (('zenith', zen), ('horizon', hor), ('sunglow', glow), ('cloud_lit', cl_lit),
-                    ('cloud_dark', cl_dark)):
-        nt[nm].outputs[0].default_value = col + (1.0,)
-    for i, v in enumerate(sdir):
-        nt['sun_dir'].inputs[i].default_value = float(v)
-    for i, v in enumerate(mdir):
-        nt['moon_dir'].inputs[i].default_value = float(v)
-    nt['cloud_time'].outputs[0].default_value = kw.get('cloud_t', t * 1.6)
-    nt['cloud_gain'].outputs[0].default_value = kw.get('cloud_gain', 3.2)
-    nt['moon'].outputs[0].default_value = 6.0 * night * moon_k
-    nt['sun_disc'].outputs[0].default_value = 30.0 * TL.smoothstep(-1.0, 1.0, el_deg)
-    if 'hdri_k' in nt:
-        nt['hdri_k'].outputs[0].default_value = kw.get('hdri', 0.0)
-        nt['hdri_rot'].outputs[0].default_value = kw.get('hdri_rot', 0.0)
-        zd, hd = sky_palette(45.0, S.look)[:2]
-        w = 0.5 + 0.5 * TL.smoothstep(3.0, -3.0, el_deg)       # half the warmth by day, all of the dark by night
-        for name, now, day_ in (('hdri_tint', zen, zd), ('hdri_tint_h', hor, hd)):
-            nt[name].outputs[0].default_value = tuple((n / d) ** w for n, d in zip(now, day_)) + (1.0,)
-    nt['cover'].outputs[0].default_value = kw.get(
-        'cover', 0.6 + 0.1 * math.sin(t * 0.37) - 0.16 * TL.smoothstep(24.0, 27.0, t))
-
-    S.m_cshadow.node_tree.nodes['shadow_time'].outputs[0].default_value = kw.get('shadow_t', t * 260.0)
-    S.m_cshadow.node_tree.nodes['shadow_cover'].outputs[0].default_value = kw.get(
-        'shadow_cover', 0.40 + 0.08 * math.sin(t * 0.37))
-    # --- water, city lights, ocean
-    S.ocean.time = kw.get('sea_t', t * 2.2)
-    S.sea.data.materials[0].node_tree.nodes['water_time'].outputs[0].default_value = kw.get('water_t', t * 0.9)
-    S.m_city.node_tree.nodes['city_lights'].outputs[0].default_value = 6.0 * night
+    zen, hor = pose_environment(S, t, **dict(kw, hour=hour))
 
     # --- the beacon
     f0, f1 = TL.PHASES['fire']
