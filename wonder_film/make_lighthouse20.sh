@@ -27,7 +27,7 @@ done
 wait
 
 # temporal stabilisation, shot by shot (optical flow; real motion passes through)
-"$PY" "$HERE/stabilize.py" --inp "$BUILD/png" --meta "$BUILD" --out "$BUILD/png_stab"
+"$PY" "$HERE/stabilize.py" --inp "$BUILD/png" --meta "$BUILD" --out "$BUILD/png_stab" --deflicker S2 --deflicker-frames 5
 
 "$PY" "$HERE/audio_lighthouse20.py" --out "$BUILD/soundtrack.wav"
 

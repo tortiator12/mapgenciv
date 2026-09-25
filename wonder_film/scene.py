@@ -637,13 +637,19 @@ SKY_KEYS_BRIGHT = [
 ]
 
 
-def sky_palette(el_deg, look='dark'):
+def sky_palette(el_deg, look='dark', log=False):
+    """Sky colours for a sun elevation.  log=True interpolates below -6 deg in
+    log space: dusk then darkens by a steady ratio per degree (as it does in
+    nature), with no kink at the keys - a fast time-lapse shows every kink."""
     keys = SKY_KEYS_BRIGHT if look == 'bright' else SKY_KEYS
     els = [k[0] for k in keys]
     out = []
     for c in range(1, 6):
         cols = np.array([k[c] for k in keys])
-        out.append(tuple(float(np.interp(el_deg, els, cols[:, i])) for i in range(3)))
+        lin = [float(np.interp(el_deg, els, cols[:, i])) for i in range(3)]
+        if log and el_deg < -6.0:
+            lin = [float(np.exp(np.interp(el_deg, els, np.log(cols[:, i] + 1e-4)))) - 1e-4 for i in range(3)]
+        out.append(tuple(lin))
     return out
 
 
@@ -2276,6 +2282,7 @@ def pose(S, t, **kw):
       fire      beacon intensity 0..1, statue_p hoist progress 0..1
       cam       (location, target, lens); traffic=False hides ships and barges
       torch_t   clock of the torches' flicker (a time-lapse exposure averages it out)
+      sky_log   dusk sky interpolated in log space (smooth ramps in a time-lapse)
     """
     sc = bpy.context.scene
     tc = kw.get('tc', t)
@@ -2505,7 +2512,7 @@ def pose(S, t, **kw):
     moon_k = kw.get('moon', 1.0)
     S.moon.data.energy = 0.42 * night * TL.smoothstep(0.0, 0.25, moon_up) * kw.get('moon_light', moon_k)
     S.moon.hide_render = S.moon.data.energy <= 1e-4
-    zen, hor, glow, cl_lit, cl_dark = sky_palette(el_deg, S.look)
+    zen, hor, glow, cl_lit, cl_dark = sky_palette(el_deg, S.look, log=kw.get('sky_log', False))
     nt = S.world.node_tree.nodes
     for nm, col in (('zenith', zen), ('horizon', hor), ('sunglow', glow), ('cloud_lit', cl_lit),
                     ('cloud_dark', cl_dark)):

@@ -1297,7 +1297,7 @@ def shot_S2(S, v):
     meta = SC.pose(S, v, tc=tc, hour=hour, life=v, hop_t=hop_t, sea_t=v * 1.4, water_t=v * 0.6,
                    cloud_t=6.0 + v * 1.1, shadow_t=1000.0 + v * 70.0, cover=0.04 + 0.04 * math.sin(v * 0.7),
                    cloud_gain=7.0, shadow_cover=0.3, moon=0.0, crane5_loc=QUAY_CRANE, statue_yaw=STATUE_YAW,
-                   cam=cam, crowd=2.5, torch_t=v * 0.08)
+                   cam=cam, crowd=2.5, torch_t=v * 0.08, sky_log=True)
     dress_workers(S, hop_t)
     life.show_site_dressing(S, tc < TL.PHASES['scaf2_down'][1])
     day = meta['day']
