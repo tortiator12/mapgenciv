@@ -7,6 +7,7 @@ HexBatch collects them together with the time they appear / disappear, so
 the renderer can assemble exactly the elements that exist at any instant.
 """
 import math
+import zlib
 
 import numpy as np
 
@@ -21,6 +22,7 @@ class HexBatch:
 
     def __init__(self, name):
         self.name = name
+        self._seed = zlib.crc32(name.encode()) & 0xFFFF
         self._c, self._on, self._off, self._mat, self._tone = [], [], [], [], []
 
     def add(self, corners, t_on=-INF, t_off=INF, mat=0, tone=None):
@@ -28,7 +30,11 @@ class HexBatch:
         self._on.append(t_on)
         self._off.append(t_off)
         self._mat.append(mat)
-        self._tone.append(np.random.random() if tone is None else tone)
+        # the tone must not come from a global random state: two render processes (or two
+        # frames) would give every block a different shade and the stones would flicker
+        if tone is None:
+            tone = _hash2(np.int64(len(self._tone)), np.int64(self._seed), 17)
+        self._tone.append(tone)
 
     def extend(self, other):
         self._c += other._c

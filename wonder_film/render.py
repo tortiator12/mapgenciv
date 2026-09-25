@@ -111,6 +111,7 @@ def main():
     ap.add_argument('--no-lines', action='store_true')
     ap.add_argument('--skip-existing', action='store_true')
     ap.add_argument('--threads', type=int, default=0)
+    ap.add_argument('--persistent', type=int, default=1, help='keep Cycles scene data between frames (1) or rebuild (0)')
     ap.add_argument('--film', default=None, help='edit module film_<name>.py (e.g. lighthouse20)')
     args = ap.parse_args()
     FM = None
@@ -128,7 +129,7 @@ def main():
     if args.threads:
         sc.render.threads_mode = 'FIXED'
         sc.render.threads = args.threads
-    sc.render.use_persistent_data = True
+    sc.render.use_persistent_data = bool(args.persistent)
     sc.world.cycles.sampling_method = 'MANUAL'
     sc.world.cycles.sample_map_resolution = 256
     override = SC.mat_simple('DataOverride', (0.5, 0.5, 0.5), 1.0)
