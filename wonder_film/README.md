@@ -233,6 +233,53 @@ venv/bin/python wonder_film/render.py --film copernicus20 --out /tmp/k20 --frame
 venv/bin/python wonder_film/stylize.py --inp /tmp/k20 --out /tmp/k20png --look paint --no-titles --film copernicus20
 ```
 
+## Civ1 game film: *J. S. Bachs Kathedrale* (20 s)
+
+`wunderfilm_13_bach`, after the Dresden Frauenkirche of George Bähr
+(1726–1743), where Bach played the new Silbermann organ on 1 December 1736.
+The game calls it a cathedral; historically it is a parish church. Its world
+(`dresden.py`): the Neumarkt with baroque town houses (plaster in cream,
+yellow, sandstone, pink and pale green, mansard roofs in slate or tile), the
+city in blocks, the fortress wall along the Elbe with a gate and a landing
+below it, the long stone bridge, the Neustadt on the far bank.
+
+| shot | time | what you see | clock |
+|---|---|---|---|
+| S1 | 0–3 s | the landing below the fortress wall, morning: barges with sandstone from the Saxon Switzerland at the pier and the quay, the treadwheel crane swings a block ashore, horse carts go up the ramp to the gate, masons dress blocks | real time |
+| S2 | 3–10 s | from above the city to the south: the walls, piers and stair towers course by course in their putlog scaffold, the bell's foot, the timber centering, the stone dome ring by ring, the lantern; the centering and the scaffold struck; two days and a night of torches | time-lapse |
+| S3 | 10–13 s | inside, from the south gallery, morning: the organ builders on their staging set the pipes into the case one by one, a gilder at the altar's retable, sunlight through the windows of the choir | time-lapse |
+| S4 | 13–15.5 s | the Neumarkt at sunset: the church finished, its west front in the last light, the people stream to the portals; the bells ring | real time |
+| S5 | 15.5–20 s | by candlelight, from the upper west gallery: Bach at the console of the organ (from behind: full-bottomed wig, long coat), the singers round him, the brass chandeliers, the congregation in the galleries | real time |
+
+The church is built of sandstone courses like the lighthouse: the square body
+with its corners cut back for four stair towers, three tiers of windows,
+pilasters, string courses and the main cornice at 24 m; the choir on the east;
+the concave "bell's foot" (`skirt_poly` morphs the cut square into the round
+drum); the stone dome, bell-shaped, 28 m across, closed by a crown ring at
+60 m; the lantern with eight openings, its cupola, spire, orb and cross at
+88 m. The dome is laid over a centering of sixteen timber ribs that stays
+until the crown ring is closed; the cranes stand on finished masonry (the
+wall tops, then the dome's top course). Inside: eight piers, three tiers of
+galleries with gilt rails, the altar with its glory, the organ gallery and
+the case with five pipe towers and the console. Faces inside the church are
+plastered and the dome is painted, decided per face in the shader from where a
+point just off the face lies (`mat_church_stone`). Bach is a sculpted,
+seated figure (`figures.organist`); the carts are drawn by horses.
+
+Sound: the Minuet in G from the notebook for Anna Magdalena Bach on a
+harpsichord (strings join in the time-lapse), chisels, mallets, cranes, the
+hours struck, the night watchman's horn, single organ pipes being voiced in
+the empty church, four bells ringing in rounds, and at the end the chorale
+"Jesus bleibet meine Freude" (BWV 147) on a synthesised organ (flute 8' + 4'
+for the triplet melody, principal and pedal 16' + 8') in a long reverberation.
+
+```bash
+PYTHON=venv/bin/python wonder_film/make_bach20.sh                     # all 480 frames
+venv/bin/python wonder_film/render.py --film bach20 --out /tmp/b20 --frames 30,150,215,290,340,430 \
+    --res 640x360 --no-lines                                              # quick look
+venv/bin/python wonder_film/stylize.py --inp /tmp/b20 --out /tmp/b20png --look paint --no-titles --film bach20
+```
+
 ## Historical basis
 
 - Built c. 280–247 BC under the first Ptolemies. The architect was

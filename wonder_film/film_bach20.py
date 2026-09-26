@@ -122,7 +122,7 @@ N_CHANDELIER = 6
 
 def build(res=(1280, 720)):
     S = DR.build(res)
-    FC._compat(S)
+    _compat(S)
     L.build_quay_crane(S)
     L.build_people(S, n_people=200)
     m_p = mat_person_baroque()
@@ -140,6 +140,7 @@ def build(res=(1280, 720)):
     for o in S.barges:
         o.pass_index = SC.PASS['ship']
     build_landing_blocks(S)
+    build_site_yard(S)
     # the people inside: organ builders, a gilder, Bach, all sculpted
     S.m_figure = FG.mat_figure()
     S.fig_builders = [FG.figure_mesh(f'OrganBuilder{k}', 'craftsman', p, S.m_figure) for k, p in enumerate(ORGAN_BUILDER_POSES)]
@@ -157,6 +158,32 @@ def build(res=(1280, 720)):
     build_chandeliers(S)
     build_church_air(S)
     return S
+
+
+def _compat(S):
+    """Six cranes (jib, rope, a sandstone block in a sling); crane 5 becomes the
+    treadwheel crane of the landing."""
+    cm, S.crane_tip = SC.crane_mesh([S.m_wood, S.m_rope])
+    rope_b = G.HexBatch('rope')
+    rope_b.add(G.beam([0, 0, -1.0], [0, 0, 0.0], 0.07), mat=0)
+    rope_b.finalize()
+    rope_me = SC.hex_mesh('RopeUnit', rope_b, np.ones(1, bool), [S.m_rope])
+    load_b = G.HexBatch('stone_load')
+    load_b.add(G.box(0, 0, -1.0, 1.5, 0.9, 0.75), mat=0)
+    load_b.add(G.beam([-0.6, 0, -1.0], [0, 0, 0.0], 0.03), mat=1)
+    load_b.add(G.beam([0.6, 0, -1.0], [0, 0, 0.0], 0.03), mat=1)
+    load_b.finalize()
+    load_me = SC.hex_mesh('StoneLoad', load_b, np.ones(3, bool), [S.m_stone, S.m_rope])
+    S.cranes = []
+    for i in range(6):
+        objs = []
+        for nm, me in (('Crane', cm), ('Rope', rope_me), ('Load', load_me)):
+            o = SC.link(bpy.data.objects.new(f'{nm}{i}', me))
+            o.pass_index = SC.PASS['crane']
+            o.hide_render = True
+            objs.append(o)
+        S.cranes.append(tuple(objs))
+    S.crane_tip_tall = S.crane_tip
 
 
 LANDING_BLOCKS = [(-95.0 + 2.1 * i, 232.0 + 1.6 * j, 0.3 * ((i + j) % 3)) for i in range(7) for j in range(3) if (i * 3 + j) % 4]
@@ -180,6 +207,31 @@ def build_landing_blocks(S):
     S.landing_blocks.pass_index = SC.PASS['props']
 
 
+def build_site_yard(S):
+    """The works on the Neumarkt round the church: stacks of sandstone blocks, the
+    masons' lodges, a lime pit, timber for the centering, a saw pit."""
+    yb = G.HexBatch('site_yard')
+    rng = np.random.default_rng(1726)
+    for k in range(26):                                                  # block stacks, in rows
+        side = k % 4
+        u = rng.uniform(-0.8, 0.8)
+        d = rng.uniform(27.0, 36.0)
+        x, y = ((d, u * 30.0), (u * 30.0, d), (-d, u * 30.0), (u * 30.0, -d))[side]
+        for lay in range(1 + (k % 3)):
+            yb.add(G.box(x, y, 0.8 * lay, 3.2, 1.6, 0.78, rng.uniform(-0.05, 0.05) + (math.pi / 2 if side in (0, 2) else 0.0)), mat=0)
+    for (x, y, rot) in ((-44.0, -38.0, 0.0), (38.0, -40.0, 0.0), (-44.0, 34.0, 0.3), (34.0, 36.0, -0.2)):
+        yb.add(G.box(x, y, 0.0, 12.0, 6.0, 3.2, rot), mat=1)             # masons' lodges
+        yb.add(G.tent(x, y, 3.2, 12.6, 6.6, 2.2, rot), mat=2)
+    yb.add(G.box(-30.0, 44.0, -0.1, 5.0, 4.0, 0.15), mat=3)              # the lime pit
+    for k in range(10):                                                  # timber for the centering
+        yb.add(G.box(40.0, -8.0 + 0.4 * (k % 5), 0.35 * (k // 5), 0.35, 12.0, 0.35), mat=1)
+    yb.finalize()
+    S.site_yard = SC.link(bpy.data.objects.new('SiteYard', SC.hex_mesh('SiteYard', yb, np.ones(len(yb.t_on), bool),
+                                                                    [S.m_stone, S.m_wood, S.m_roof,
+                                                                     SC.mat_simple('LimePit', (0.86, 0.85, 0.80), 0.9)])))
+    S.site_yard.pass_index = SC.PASS['props']
+
+
 def build_trestles(S):
     """S3: the organ builders' staging in front of the case, the gilder's trestle."""
     tb = G.HexBatch('trestles')
@@ -198,7 +250,7 @@ def build_trestles(S):
     S.trestles.pass_index = SC.PASS['timber']
 
 
-CHANDELIERS = [(-4.0, 0.0), (4.0, 0.0), (0.0, -6.0), (0.0, 6.0), (-8.0, -5.0), (-8.0, 5.0)]
+CHANDELIERS = [(0.0, 0.0), (-5.0, -3.6), (-5.0, 3.6), (5.0, -3.6), (5.0, 3.6), (-8.5, 0.0)]
 
 
 def build_chandeliers(S):
@@ -212,10 +264,15 @@ def build_chandeliers(S):
         cb.add(G.beam([0, 0, 0.4], [1.1 * math.cos(a0), 1.1 * math.sin(a0), 0.0], 0.03), mat=0)
         cb.add(G.box(1.1 * math.cos(a0), 1.1 * math.sin(a0), 0.02, 0.05, 0.05, 0.22), mat=1)
     cb.add(G.beam([0, 0, -0.5], [0, 0, 0.6], 0.12), mat=0)
-    cb.add(G.beam([0, 0, 0.6], [0, 0, 22.0], 0.025), mat=0)             # the chain up into the dome
+    cb.add(G.beam([0, 0, 0.6], [0, 0, 30.0], 0.025), mat=0)             # the chain up into the dome
     cb.finalize()
     me = SC.hex_mesh('Chandelier', cb, np.ones(len(cb.t_on), bool), [S.m_gold, SC.mat_simple('Wax', (0.85, 0.80, 0.65), 0.6)])
-    fm = SC.prism('ChandFlames', 1.14, 0.0, 0.06, 24, 1.14, (0, 0), [S.m_torch])
+    fb = G.HexBatch('chand_flames')                                     # a small flame on each candle
+    for k in range(n):
+        a0 = 2 * math.pi * k / n
+        fb.add(G.box(1.1 * math.cos(a0), 1.1 * math.sin(a0), 0.0, 0.03, 0.03, 0.07, a0), mat=0)
+    fb.finalize()
+    fm = SC.hex_mesh('ChandFlames', fb, np.ones(n, bool), [S.m_torch])
     for i, (x, y) in enumerate(CHANDELIERS):
         o = SC.link(bpy.data.objects.new(f'Chandelier{i}', me))
         o.pass_index = SC.PASS['props']
@@ -225,7 +282,7 @@ def build_chandeliers(S):
         ld.color = (1.0, 0.62, 0.3)
         ld.shadow_soft_size = 0.8
         lo = SC.link(bpy.data.objects.new(f'ChandLight{i}', ld))
-        S.chandeliers.append((o, f, lo, (x, y, 9.5 + 0.8 * (i % 2))))
+        S.chandeliers.append((o, f, lo, (x, y, 14.6 + 0.9 * (i % 2))))
     S.organ_lights = []
     for i, y in enumerate((-3.0, 3.0)):                                  # candles on the organ gallery
         ld = bpy.data.lights.new(f'OrganLight{i}', 'POINT')
@@ -252,7 +309,7 @@ def build_church_air(S):
 
 
 def hide_extras(S):
-    for o in S.people + S.builders + S.barges + [S.tread, S.bach, S.trestles, S.church_air]:
+    for o in S.people + S.builders + S.barges + [S.tread, S.bach, S.trestles, S.church_air, S.site_yard]:
         o.hide_render = True
     for c, wheels, oxen in S.carts:
         c.hide_render = True
@@ -294,10 +351,10 @@ def crane_at(S, i, base, slew, hop_t, ground=None, seed=0):
 
 # ================================================================== shots
 S1_SKY, S2_SKY, S3_SKY, S4_SKY, S5_SKY = 1.2, 2.4, 0.0, 3.4, 5.0
-S1_CAM0 = ((-40.0, 272.0, DR.WATER_Z + 2.6), (-86.0, 228.0, DR.STRAND_Z + 2.0))
-S1_CAM1 = ((-42.0, 268.0, DR.WATER_Z + 2.5), (-86.5, 227.0, DR.STRAND_Z + 2.2))
-BARGE_SPOTS = [(-104.0, 259.0, 0.02), (-76.0, 258.5, -0.03), (-47.0, 261.0, 0.04), (-128.0, 262.0, 0.0)]
-QUAY_CRANE = (-86.0, 247.0)
+S1_CAM0 = ((-24.0, 266.0, DR.WATER_Z + 5.5), (-120.0, 236.0, -2.5))
+S1_CAM1 = ((-27.0, 264.5, DR.WATER_Z + 5.3), (-121.0, 236.5, -2.4))
+BARGE_SPOTS = [(-82.0, 248.8, 0.0), (-74.6, 261.0, math.pi / 2 + 0.02), (-110.0, 251.0, -0.03), (-140.0, 283.0, 0.25)]
+QUAY_CRANE = (-80.5, 241.0)
 
 
 def shot_S1(S, v):
@@ -316,7 +373,7 @@ def shot_S1(S, v):
     # the quay crane: a block from the middle barge up and round onto the quay
     c, rope, load = S.cranes[5]
     q = TL.ease_io(np.clip((v - 0.2) / 2.6, 0, 1))
-    slew = math.radians(95.0 + 150.0 * q)
+    slew = math.radians(80.0 + 125.0 * q)
     c.matrix_world = Matrix.Translation((QUAY_CRANE[0], QUAY_CRANE[1], DR.STRAND_Z - 0.2)) @ Matrix.Rotation(slew, 4, 'Z')
     c.hide_render = rope.hide_render = load.hide_render = False
     tip = c.matrix_world @ Vector(S.crane_tip)
@@ -379,6 +436,7 @@ def shot_S2(S, v):
     day = meta['day']
     FC.smoke_light(S, hour, fires=1.0 - day)
     hop_t = 2.0 * v
+    S.site_yard.hide_render = tc > DR.TC_SCAF_DOWN[1]
     k = 0
     # cranes: on the wall tops while the walls rise, then on the dome's top course
     if tc < DR.TC_WALLS[1]:
@@ -419,7 +477,7 @@ def shot_S2(S, v):
     return meta
 
 
-S3_TC = (8.9, 9.15)                     # the pipes go in, the gilding is finished
+S3_TC = (8.93, 9.1)                     # the pipes go in one by one, the gilding is finished
 
 
 def shot_S3(S, v):
@@ -429,8 +487,8 @@ def shot_S3(S, v):
     e = TL.ease_io(u)
     hour = 9.4 + 0.3 * u
     tc = S3_TC[0] + (S3_TC[1] - S3_TC[0]) * u
-    c0, c1 = (-9.5, -2.5, 2.0), (-8.2, -2.0, 2.2)
-    cam = (lerp3(c0, c1, e), (22.0, 0.5, 12.0), 26.0)
+    c0, c1 = (7.2, -13.4, DR.GALLERIES[1] + 1.7), (7.8, -12.9, DR.GALLERIES[1] + 1.75)
+    cam = (lerp3(c0, c1, e), (24.5, 0.5, 15.5), 28.0)
     meta = env(S, v, hour, cam, tc, S3_SKY, cover=0.25)
     S.church_air.hide_render = False
     S.trestles.hide_render = False
@@ -455,8 +513,8 @@ def shot_S4(S, v):
     u = (v - 13.0) / 2.5
     e = TL.ease_io(u)
     hour = S4_HOURS[0] + (S4_HOURS[1] - S4_HOURS[0]) * u
-    c0, c1 = (-74.0, 58.0, 2.0), (-70.0, 55.0, 2.1)
-    cam = (lerp3(c0, c1, e), (0.0, 0.0, 34.0), 20.0)
+    c0, c1 = (-51.0, 41.0, 2.0), (-49.0, 39.5, 2.1)
+    cam = (lerp3(c0, c1, e), (0.0, 0.0, 34.0), 18.0)
     meta = env(S, v, hour, cam, 9.6, S4_SKY + 0.002 * v, cover=0.3)
     FC.smoke_light(S, hour)
     rng = np.random.default_rng(14)
@@ -487,32 +545,32 @@ def shot_S5(S, v):
     organ, the singers round him, the congregation in the galleries."""
     u = (v - 15.5) / 4.5
     e = TL.ease_io(u)
-    c0, c1 = (-16.2, -0.6, DR.GALLERIES[2] + 1.55), (-14.6, -0.5, DR.GALLERIES[2] + 1.5)
-    cam = (lerp3(c0, c1, e), (22.0, 0.0, DR.ORGAN_Z + 2.0), 34.0)
+    c0, c1 = (-16.4, -0.4, DR.GALLERIES[2] + 2.5), (-15.0, -0.3, DR.GALLERIES[2] + 2.45)
+    cam = (lerp3(c0, c1, e), (24.0, 0.0, DR.ORGAN_Z + 3.3), 45.0)
     meta = env(S, v, S5_HOUR, cam, 9.6, S5_SKY, cover=0.2, hdri=0.0, moon=0.3)
     for i, (o, f, lo, (x, y, z)) in enumerate(S.chandeliers):
         fl = 0.9 + 0.1 * SC.smooth_rand(i + 300, v, 6.0)
         o.matrix_world = Matrix.Translation((x, y, z))
         f.matrix_world = Matrix.Translation((x, y, z + 0.24)) @ Matrix.Diagonal((1.0, 1.0, fl, 1.0))
         lo.location = (x, y, z + 0.5)
-        lo.data.energy = 900.0 * fl
+        lo.data.energy = 420.0 * fl
         o.hide_render = f.hide_render = lo.hide_render = False
     S.m_torch.node_tree.nodes['torch_k'].outputs[0].default_value = 1.0
     ox = DR.HALF + 2.0
     for i, lo in enumerate(S.organ_lights):
-        lo.location = (ox - 0.4, (-3.0, 3.0)[i], DR.ORGAN_Z + 1.6)
-        lo.data.energy = 120.0 * (0.9 + 0.1 * SC.smooth_rand(i + 320, v, 7.0))
+        lo.location = (ox - 0.2, (-2.4, 2.4)[i], DR.ORGAN_Z + 2.2)
+        lo.data.energy = 260.0 * (0.9 + 0.1 * SC.smooth_rand(i + 320, v, 7.0))
         lo.hide_render = False
     S.bach.data = S.fig_bach[int(v * 1.7) % 2]
-    S.bach.matrix_world = Matrix.Translation((ox - 1.4, 0.0, DR.ORGAN_Z)) @ Matrix.Rotation(-math.pi / 2, 4, 'Z')
+    S.bach.matrix_world = Matrix.Translation((ox + 0.75, 0.0, DR.ORGAN_Z)) @ Matrix.Rotation(-math.pi / 2, 4, 'Z')
     S.bach.hide_render = False
     k = 0
     rng = np.random.default_rng(21)
-    for j in range(10):                                                  # the singers on the organ gallery
-        y = -5.2 + 1.15 * j
+    for j in range(9):                                                   # the singers on the organ gallery
+        y = -4.4 + 1.1 * j
         if abs(y) < 1.3:
             continue
-        L.place_person(S, k, (ox - 1.8 + rng.uniform(-0.3, 0.3), y, DR.ORGAN_Z), math.pi, 'stand', rng.uniform(0, 6))
+        L.place_person(S, k, (ox - 0.6 + rng.uniform(-0.3, 0.3), y, DR.ORGAN_Z), math.pi, 'stand', rng.uniform(0, 6))
         S.people[k].color = COATS[(j * 3) % len(COATS)]
         k += 1
     for gi, zg in enumerate(DR.GALLERIES):                               # the congregation at the gallery parapets

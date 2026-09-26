@@ -55,7 +55,7 @@ Z_CORNICE = 24.0
 TOWER_R = 4.2                         # the stair towers (octagons)
 TOWER_Z = 32.0                        # their bodies end here, the cupolas above
 APSE_R = 10.5
-APSE_Z = 18.0
+APSE_Z = 21.0
 PIER_R = 12.0                         # the eight piers under the dome
 SKIRT = (24.0, 31.0)                  # the bell's foot, from the square to the drum
 DOME_PROFILE = [(24.0, 14.2), (31.0, 14.2), (34.0, 13.8), (38.0, 13.4), (42.0, 12.9), (46.0, 12.1), (50.0, 10.9),
@@ -159,6 +159,71 @@ def mat_sandstone(name='Sandstone', base=(0.80, 0.71, 0.55)):
     return SC.mat_masonry(name, base, (0.62, 0.58, 0.50), var=0.08, width=0.025, grime=0.12)
 
 
+def mat_church_stone():
+    """The church's stones: Elbe sandstone outside; inside, the walls and piers are
+    plastered cream and the dome is painted (warm, softly mottled), decided per face
+    from where a point just off the face lies."""
+    m = mat_sandstone('ChurchStone')
+    nt = m.node_tree
+    bsdf = [n for n in nt.nodes if n.type == 'BSDF_PRINCIPLED'][0]
+    src = bsdf.inputs['Base Color'].links[0].from_socket
+    geo = nt.nodes.new('ShaderNodeNewGeometry')
+
+    def math(op, a, b=None):
+        n = nt.nodes.new('ShaderNodeMath')
+        n.operation = op
+        for i, v in enumerate((a, b)):
+            if v is None:
+                continue
+            if isinstance(v, (int, float)):
+                n.inputs[i].default_value = float(v)
+            else:
+                nt.links.new(v, n.inputs[i])
+        return n.outputs[0]
+    sepP = nt.nodes.new('ShaderNodeSeparateXYZ')
+    nt.links.new(geo.outputs['Position'], sepP.inputs[0])
+    sepN = nt.nodes.new('ShaderNodeSeparateXYZ')
+    nt.links.new(geo.outputs['Normal'], sepN.inputs[0])
+    px, py, pz = sepP.outputs
+    nx, ny, nz = sepN.outputs
+    qx = math('ADD', px, math('MULTIPLY', nx, 0.4))
+    qy = math('ADD', py, math('MULTIPLY', ny, 0.4))
+    qz = math('ADD', pz, math('MULTIPLY', nz, 0.4))
+    body = math('MULTIPLY', math('LESS_THAN', math('MAXIMUM', math('ABSOLUTE', qx), math('ABSOLUTE', qy)), HALF - WALL_T + 0.1),
+                math('LESS_THAN', qz, Z_CORNICE + 0.2))
+    r = math('SQRT', math('ADD', math('MULTIPLY', px, px), math('MULTIPLY', py, py)))
+    inward = math('LESS_THAN', math('ADD', math('MULTIPLY', nx, px), math('MULTIPLY', ny, py)), 0.0)
+    dome = math('MULTIPLY', math('MULTIPLY', math('GREATER_THAN', qz, Z_CORNICE + 0.2), math('LESS_THAN', r, 15.0)), inward)
+    ax = HALF - 0.9
+    dx = math('SUBTRACT', qx, ax)
+    apse = math('MULTIPLY', math('MULTIPLY', math('LESS_THAN', math('ADD', math('MULTIPLY', dx, dx), math('MULTIPLY', qy, qy)),
+                                                  (APSE_R - 1.4) ** 2), math('GREATER_THAN', qx, ax - 0.5)),
+                math('LESS_THAN', qz, APSE_Z + 6.0))
+    inside = math('MINIMUM', math('ADD', math('ADD', body, dome), apse), 1.0)
+    noise = nt.nodes.new('ShaderNodeTexNoise')
+    noise.inputs['Scale'].default_value = 0.35
+    noise.inputs['Detail'].default_value = 3.0
+    nt.links.new(geo.outputs['Position'], noise.inputs['Vector'])
+    fresco = nt.nodes.new('ShaderNodeValToRGB')
+    fresco.color_ramp.elements[0].color = (0.80, 0.66, 0.48, 1)
+    fresco.color_ramp.elements[1].color = (0.58, 0.62, 0.72, 1)
+    fresco.color_ramp.elements.new(0.5).color = (0.86, 0.78, 0.62, 1)
+    nt.links.new(noise.outputs['Fac'], fresco.inputs['Fac'])
+    painted = math('MULTIPLY', dome, math('GREATER_THAN', qz, 31.5))
+    mixd = nt.nodes.new('ShaderNodeMix')
+    mixd.data_type = 'RGBA'
+    nt.links.new(painted, mixd.inputs['Factor'])
+    mixd.inputs[6].default_value = (0.88, 0.85, 0.77, 1)                  # plaster
+    nt.links.new(fresco.outputs['Color'], mixd.inputs[7])
+    mix = nt.nodes.new('ShaderNodeMix')
+    mix.data_type = 'RGBA'
+    nt.links.new(inside, mix.inputs['Factor'])
+    nt.links.new(src, mix.inputs[6])
+    nt.links.new(mixd.outputs[2], mix.inputs[7])
+    nt.links.new(mix.outputs[2], bsdf.inputs['Base Color'])
+    return m
+
+
 def mat_houses():
     """Baroque Dresden: plaster in cream, pale yellow, sandstone, pink and pale
     green (tone per house), window rows lit at night."""
@@ -244,7 +309,7 @@ def block_of_houses(hb, rng, x0, x1, y0, y1, depth=14.0, h_rng=(13.0, 19.0), ski
                 y += w
 
 
-NEUMARKT = (-80.0, 68.0, -88.0, 78.0)            # the open square round the church (x0, x1, y0, y1)
+NEUMARKT = (-60.0, 50.0, -58.0, 52.0)            # the open square round the church (x0, x1, y0, y1)
 
 
 def build_city(coll, m_houses, m_roof):
@@ -413,10 +478,8 @@ def build_church():
                     elif 1.5 < zc < 7.5 or 9.5 < zc < 15.5 or 17.6 < zc < 22.2:
                         holes.append((u - 0.033, u + 0.033))              # three tiers of windows
             openings[side] = holes
-        if zc < 17.0:
+        if zc < 20.0:
             openings[0] = [(0.14, 0.86)]                                  # the choir arch
-        elif 18.5 < zc < 22.0:
-            openings[0] = [(u - 0.033, u + 0.033) for u in (0.2, 0.8)]
         pieces = G.ring_course(body_poly, HALF, HALF, WALL_T, z0, z1, 1.7, k, openings=openings)
         for corners, order in pieces:
             cb.add(corners, t_on=tk + (tk1 - tk) * order, mat=0)
@@ -454,11 +517,12 @@ def build_church():
         zc = 0.5 * (z0 + z1)
         tk = tc_at(z0, TC_WALLS, -0.6, Z_CORNICE)
         n = 22
+        win = 3.0 < zc < 13.0
         for j in range(n):
-            a0 = -math.pi / 2 + math.pi * (j + 0.5 * (k % 2)) / n
+            a0 = -math.pi / 2 + math.pi * (j + (0.0 if win else 0.5 * (k % 2))) / n
             a1 = min(a0 + math.pi / n, math.pi / 2)
             am = 0.5 * (a0 + a1)
-            if 3.0 < zc < 13.0 and any(abs(am - w) < 0.09 for w in (-0.75, 0.0, 0.75)):
+            if win and any(abs(am - w) < 0.09 for w in (-0.75, 0.0, 0.75)):
                 continue
             ro, ri = APSE_R, APSE_R - 1.5
             bq = np.array([[ax + ro * math.cos(a0), ro * math.sin(a0)], [ax + ro * math.cos(a1), ro * math.sin(a1)],
@@ -565,7 +629,9 @@ def build_church():
             cb.add(G._hexa(q, q, zg - 0.35, zg), t_on=t0, mat=2)
             pq = np.array([[ri * math.cos(a0), ri * math.sin(a0)], [ri * math.cos(a1), ri * math.sin(a1)],
                            [(ri - 0.25) * math.cos(a1), (ri - 0.25) * math.sin(a1)], [(ri - 0.25) * math.cos(a0), (ri - 0.25) * math.sin(a0)]])
-            cb.add(G._hexa(pq, pq, zg - 0.9, zg + 1.05), t_on=t0 + 0.02, mat=5)
+            cb.add(G._hexa(pq, pq, zg - 0.9, zg + 1.0), t_on=t0 + 0.02, mat=5)
+            cb.add(G._hexa(pq, pq, zg + 1.0, zg + 1.1), t_on=t0 + 0.02, mat=3)          # gilt rail
+            cb.add(G._hexa(pq, pq, zg - 0.95, zg - 0.85), t_on=t0 + 0.02, mat=3)
     # pews in the nave
     for row in range(9):
         x = -9.0 + row * 1.9
@@ -588,18 +654,26 @@ def build_church():
                t_on=TC_INSIDE[0] + 0.1, mat=3)
     # the organ gallery and the organ above the altar: case, towers of pipes, flats, the console
     ox = HALF + 2.0
-    cb.add(G.box(ox + 1.0, 0, ORGAN_Z - 0.5, 7.0, 13.0, 0.5), t_on=TC_INSIDE[0] + 0.1, mat=2)
-    cb.add(G.box(ox - 2.4, 0, ORGAN_Z, 0.3, 13.0, 1.1), t_on=TC_INSIDE[0] + 0.12, mat=5)             # the gallery's parapet
-    cb.add(G.box(ox + 3.2, 0, ORGAN_Z, 2.2, 11.0, 11.0), t_on=TC_INSIDE[1] - 0.2, mat=5)             # the case
-    cb.add(G.box(ox + 2.2, 0, ORGAN_Z + 11.0, 2.6, 11.6, 0.6), t_on=TC_INSIDE[1] - 0.2, mat=3)
-    for ty_, w_, h_ in ((0.0, 2.6, 9.5), (-3.2, 1.8, 7.5), (3.2, 1.8, 7.5), (-5.0, 1.3, 6.0), (5.0, 1.3, 6.0)):
-        nps = int(w_ / 0.26)
+    cb.add(G.box(ox + 0.5, 0, ORGAN_Z - 0.5, 6.0, 11.0, 0.5), t_on=TC_INSIDE[0] + 0.05, mat=2)
+    cb.add(G.box(ox - 3.0, 0, ORGAN_Z, 0.3, 11.0, 0.85), t_on=TC_INSIDE[0] + 0.07, mat=5)            # the gallery's parapet
+    cb.add(G.box(ox - 3.0, 0, ORGAN_Z + 0.85, 0.36, 11.0, 0.1), t_on=TC_INSIDE[0] + 0.07, mat=3)
+    cb.add(G.box(ox + 3.2, 0, ORGAN_Z, 2.2, 7.5, 8.0), t_on=TC_INSIDE[0] + 0.08, mat=5)              # the case
+    cb.add(G.box(ox + 2.2, 0, ORGAN_Z + 8.0, 2.6, 8.0, 0.5), t_on=TC_INSIDE[0] + 0.08, mat=3)
+    towers = ((0.0, 1.8, 6.6), (-2.6, 1.4, 5.4), (2.6, 1.4, 5.4), (-1.35, 0.7, 4.2), (1.35, 0.7, 4.2))
+    pipes = []
+    for ty_, w_, h_ in towers:
+        nps = int(w_ / 0.24)
         for j in range(nps):
             y = ty_ - w_ / 2 + (j + 0.5) * w_ / nps
             hh = h_ * (0.72 + 0.28 * math.cos(math.pi * (j + 0.5) / nps - math.pi / 2))
-            oct_prism(cb, ox + 2.0, y, 0.1, 0.1, ORGAN_Z + 1.4, ORGAN_Z + 1.4 + hh, t_on=TC_INSIDE[1] - 0.15, mat=4)
-    cb.add(G.box(ox - 0.6, 0, ORGAN_Z, 0.9, 1.9, 1.15), t_on=TC_INSIDE[1] - 0.1, mat=5)             # the console
-    cb.add(G.box(ox - 1.4, 0, ORGAN_Z, 0.45, 1.3, 0.5), t_on=TC_INSIDE[1] - 0.1, mat=2)             # the bench
+            pipes.append((y, hh))
+    order = np.random.default_rng(1736).permutation(len(pipes))              # set one by one, in no strict order
+    for rank, i in enumerate(order):
+        y, hh = pipes[i]
+        oct_prism(cb, ox + 2.0, y, 0.1, 0.1, ORGAN_Z + 1.1, ORGAN_Z + 1.1 + hh,
+                  t_on=TC_INSIDE[0] + 0.12 + 0.2 * rank / len(pipes), mat=4)
+    cb.add(G.box(ox + 1.55, 0, ORGAN_Z, 0.9, 1.9, 1.15), t_on=TC_INSIDE[1] - 0.1, mat=5)            # the console, built into the case
+    cb.add(G.box(ox + 0.75, 0, ORGAN_Z, 0.45, 1.3, 0.5), t_on=TC_INSIDE[1] - 0.1, mat=2)            # the bench
     cb.finalize()
     return cb
 
@@ -712,6 +786,7 @@ def build(res=(1280, 720)):
     coll = sc.collection
     P = SC.P
     S.m_stone = mat_sandstone()
+    S.m_church = mat_church_stone()
     S.m_houses = mat_houses()
     S.m_roof = mat_slate()
     S.m_wood = SC.mat_wood('Timber', P['wood'])
@@ -745,7 +820,7 @@ def build(res=(1280, 720)):
     S.church_batch = build_church()
     S.church_obj = SC.link(bpy.data.objects.new('Frauenkirche', bpy.data.meshes.new('Frauenkirche')), coll)
     S.church_obj.pass_index = SC.PASS['masonry']
-    S.church_mats = [S.m_stone, S.m_glass, S.m_plank, S.m_gold, S.m_tin, S.m_white, S.m_pew]
+    S.church_mats = [S.m_church, S.m_glass, S.m_plank, S.m_gold, S.m_tin, S.m_white, S.m_pew]
     S.scaf_batch, S.sched, S.dsched = build_scaffolds()
     S.scaf_obj = SC.link(bpy.data.objects.new('ChurchScaffold', bpy.data.meshes.new('ChurchScaffold')), coll)
     S.scaf_obj.pass_index = SC.PASS['timber']
