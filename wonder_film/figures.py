@@ -24,7 +24,7 @@ import sculpt as SD
 
 CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'build', 'cache')
 H = 0.012                              # voxel (m)
-R_ROBE, R_FUR, R_SKIN, R_HAIR, R_APRON, R_SHIRT, R_HOSE, R_CAP, R_WOOD = range(9)
+R_ROBE, R_FUR, R_SKIN, R_HAIR, R_APRON, R_SHIRT, R_HOSE, R_CAP, R_WOOD, R_WIG, R_STOCK = range(11)
 
 
 def _folds(cx, cy, n, amp, z_top):
@@ -140,6 +140,43 @@ def craftsman(pose):
     return p
 
 
+def organist(pose):
+    """A baroque organist on his bench (the bench top at z = 0.5): full-bottomed wig,
+    a long coat with wide cuffs, breeches, white stockings, buckled shoes; the
+    hands on the manuals.  pose: hand_r, hand_l, look, lean (m forward)."""
+    p = []
+    lean = pose.get('lean', 0.04)
+    hip = np.array([0.0, 0.0, 0.62])
+    chest = np.array([0.0, 0.03 + lean, 1.08])
+    neck = np.array([0.0, 0.04 + lean * 1.3, 1.3])
+    _ell(p, hip, (0.18, 0.15, 0.11), k=0.05, tag=R_ROBE)
+    _ell(p, chest, (0.19, 0.12, 0.22), k=0.07, tag=R_ROBE)
+    _limb(p, hip, chest, 0.15, 0.16, k=0.06, tag=R_ROBE)
+    _limb(p, hip + [0, -0.04, 0.12], (0.0, -0.1, 0.5), 0.18, 0.27, k=0.04, tag=R_ROBE)      # the coat's skirts on the bench
+    for s in (1, -1):                                                     # thighs, shins, shoes
+        kn = np.array([s * 0.13, 0.46, 0.58])
+        an = np.array([s * 0.14, 0.52, 0.1])
+        _limb(p, hip + [s * 0.09, 0.03, -0.03], kn, 0.085, 0.065, k=0.03, tag=R_HOSE)
+        _limb(p, kn, an, 0.06, 0.042, k=0.02, tag=R_STOCK)
+        _ell(p, an + [0, 0.07, -0.05], (0.045, 0.12, 0.04), k=0.02, tag=R_HOSE)
+    _limb(p, neck + [0, 0, -0.04], neck + [0, 0, 0.05], 0.05, 0.045, k=0.02, tag=R_SKIN)
+    hc = head_hair(p, neck + [0, 0, 0.04], look=pose.get('look', (0.0, 1.0, -0.1)), bob=False)
+    f = np.asarray(pose.get('look', (0.0, 1.0, -0.1)), float)
+    f /= np.linalg.norm(f)
+    _ell(p, hc - f * 0.03 + [0, 0, 0.03], (0.13, 0.13, 0.13), k=0.02, tag=R_WIG)             # the wig: crown ...
+    for s in (1, -1):                                                     # ... and the curls on the shoulders
+        _ell(p, hc + [s * 0.1, -0.05, -0.13], (0.08, 0.085, 0.17), k=0.03, tag=R_WIG)
+    _ell(p, hc + [0, -0.09, -0.12], (0.11, 0.07, 0.15), k=0.03, tag=R_WIG)
+    for s, key in ((1, 'hand_r'), (-1, 'hand_l')):
+        sh = np.array([s * 0.2, 0.03 + lean, 1.24])
+        el, hand = arm(sh, pose.get(key, (s * 0.2, 0.45, 0.95)), s, upper=0.3, fore=0.28)
+        _limb(p, sh, el, 0.065, 0.055, k=0.03, tag=R_ROBE)
+        cuff = hand - (hand - el) * 0.3
+        _limb(p, el, cuff, 0.055, 0.075, k=0.02, tag=R_ROBE)              # the wide turned-back cuff
+        _ell(p, hand, (0.035, 0.05, 0.022), k=0.012, tag=R_SKIN)
+    return p
+
+
 def _key(kind, pose):
     src = open(os.path.abspath(__file__), 'rb').read() + open(SD.__file__, 'rb').read() + repr((kind, sorted(pose.items()))).encode()
     return hashlib.sha1(src).hexdigest()[:14]
@@ -152,7 +189,7 @@ def figure(kind, pose):
     if os.path.exists(path):
         d = np.load(path)
         return d['V'], d['F'], d['R']
-    prims = scholar(pose) if kind == 'scholar' else craftsman(pose)
+    prims = {'scholar': scholar, 'craftsman': craftsman, 'organist': organist}[kind](pose)
     lo = np.array([-0.55, -0.55, -0.03])
     hi = np.array([0.55, 0.65, 1.9])
     vol, org = SD.sample(prims, lo, hi, H)
@@ -181,7 +218,7 @@ def mat_figure(name='Figure', robe=(0.10, 0.05, 0.04)):
     cloth = oi.outputs['Color']
     cols = {R_ROBE: None, R_FUR: (0.16, 0.11, 0.07), R_SKIN: (0.50, 0.33, 0.24), R_HAIR: (0.06, 0.04, 0.03),
             R_APRON: (0.22, 0.14, 0.08), R_SHIRT: None, R_HOSE: (0.18, 0.16, 0.14), R_CAP: (0.28, 0.20, 0.12),
-            R_WOOD: (0.35, 0.24, 0.14)}
+            R_WOOD: (0.35, 0.24, 0.14), R_WIG: (0.80, 0.78, 0.72), R_STOCK: (0.82, 0.80, 0.74)}
     col = cloth
     for k, c in cols.items():
         if c is None:
