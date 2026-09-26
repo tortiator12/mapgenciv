@@ -1,0 +1,17 @@
+{
+ "day": {
+  "asset": "kloofendal_48d_partly_cloudy_puresky",
+  "file": "kloofendal_48d_partly_cloudy_puresky_4k_nosun.hdr",
+  "sun_lat_lon": [
+   47.8564453125,
+   34.2333984375
+  ],
+  "median_sky": 0.3444511592388153,
+  "authors": [
+   "Greg Zaal",
+   "Jarod Guest"
+  ],
+  "license": "CC0 1.0 (Poly Haven)",
+  "url": "https://polyhaven.com/a/kloofendal_48d_partly_cloudy_puresky"
+ }
+}

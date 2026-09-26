@@ -5,3 +5,5 @@ obj/
 out/
 *.building.png
 .vs/
+wonder_film/build/
+wonder_film/assets/hdri/*.hdr
