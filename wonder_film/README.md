@@ -280,6 +280,49 @@ venv/bin/python wonder_film/render.py --film bach20 --out /tmp/b20 --frames 30,1
 venv/bin/python wonder_film/stylize.py --inp /tmp/b20 --out /tmp/b20png --look paint --no-titles --film bach20
 ```
 
+## Civ1 game film: *Magellans Expedition* (20 s)
+
+`wunderfilm_08_magellan`: the "wonder" is the fitting-out of the fleet at
+Seville in 1519 (`seville.py`, `ships.py`). The Guadalquivir runs north to
+south; the city lies behind its walls on the east bank with the Arenal, the
+river beach where the ships were fitted out; the Torre del Oro (the twelve-sided
+tower in its 1519 state, two bodies with merlons) at the water's edge, the
+Giralda (the Almohad minaret with a simple belfry; the Renaissance crown came
+in 1568) and the cathedral behind; Triana on the west bank; the bridge of
+boats upstream. The beach of Sanlúcar with the town on its hill is a world of
+its own far to the south-west.
+
+| shot | time | what you see | clock |
+|---|---|---|---|
+| S1 | 0–3 s | the Arenal on a summer morning, the Torre del Oro beyond: stacks of casks and sacks, bronze guns on carriages, coils of rope, ox carts, merchants and soldiers; four naos moored with their bows to the bank | real time |
+| S2 | 3–9 s | the Victoria careened, hove down towards the shore by tackles from her mastheads to capstans, her bottom to the river: men on a raft scrape the weed off from the stern forwards, the pitch kettle smokes; she is righted in steps, sheer legs set her topmasts, then yards, stays and furled sails; the other ships round her in other stages | time-lapse |
+| S3 | 9–12 s | on her deck: a cask lowered from the main yard into the hold, sailors at work, the flag of Burgundy hoisted | real time |
+| S4 | 12–15 s | the departure: the five ships run down the river before the northerly with all sails set, the red cross on their courses; the people on the Arenal wave | time-lapse |
+| S5 | 15–20 s | 6 September 1522, sunrise at Sanlúcar, seen from the sea: the Victoria comes in alone under patched sails, the sun over the town and its church tower, her salute gun smokes | real time |
+
+The ships (`ships.py`) come from one parametric model: a lofted carvel hull
+with tumblehome, a raked stem and a flat transom, the castles fore and aft,
+wales and a sheer rail; lower masts with round tops, topmasts, yards, a lateen
+mizzen and a spritsail; shrouds with ratlines, stays and lifts; sails as meshes
+bellied by the wind from astern, furled on their yards, or patched and
+stained for the voyage's end. The rig goes up in stages (lower masts and
+shrouds; topmasts and bowsprit; yards and stays), and the bottom carries weed
+until it is scraped (`foul`, `clean_x`). The five naos differ in size
+(Trinidad, San Antonio, Concepción, Victoria, Santiago).
+
+Sound: a shawm, a sackbut and a tabor play a dance in D Dorian that quickens
+in the time-lapse and turns to D major at the departure; scrapers, caulking
+mallets, capstan pawls, creaking tackles, gulls, the crowd and the cathedral's
+bells; at Sanlúcar the surf, the salute gun and its echo, the town's bells and
+a psalm tone sung quietly.
+
+```bash
+PYTHON=venv/bin/python wonder_film/make_magellan20.sh                 # all 480 frames
+venv/bin/python wonder_film/render.py --film magellan20 --out /tmp/m20 --frames 30,100,190,250,320,420 \
+    --res 640x360 --no-lines                                              # quick look
+venv/bin/python wonder_film/stylize.py --inp /tmp/m20 --out /tmp/m20png --look paint --no-titles --film magellan20
+```
+
 ## Historical basis
 
 - Built c. 280–247 BC under the first Ptolemies. The architect was
