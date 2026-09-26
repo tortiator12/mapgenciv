@@ -192,12 +192,26 @@ def star_catalogue(n=9000, seed=3):
 def star_layer(H, W, meta, frame):
     """Stars projected through the frame's camera; the sky turns about the
     celestial pole with the time-lapse clock (star motion at night)."""
-    v, b, tw = star_catalogue()
+    v0, b0, tw0 = star_catalogue()
+    trail = float(meta.get('star_trail', 0.0))          # hours of trail behind each star (time-lapse exposure)
+    if trail > 0.0:
+        bright = b0 > 0.28                                  # only the brighter stars leave a visible trail
+        v0, b0, tw0 = v0[bright], b0[bright], tw0[bright]
+        k = max(2, int(trail * 90))
+        dh = np.linspace(0.0, trail, k)
+        wts = np.linspace(1.0, 0.35, k) * (2.2 / k)
+        v0 = np.concatenate([v0] * k)
+        b0 = np.concatenate([b0 * w for w in wts])
+        tw0 = np.concatenate([tw0] * k)
+        hours = np.repeat(meta['hour'] - dh, len(v0) // k)
+    else:
+        hours = np.full(len(v0), meta['hour'])
     lat = TL.LATITUDE
     axis = np.array([0.0, math.cos(lat), math.sin(lat)])
-    th = -math.radians(15.0 * meta['hour'])
-    c, s_ = math.cos(th), math.sin(th)
-    v = v * c + np.cross(axis, v) * s_ + np.outer(v @ axis, axis) * (1 - c)
+    th = -np.radians(15.0 * hours)
+    c, s_ = np.cos(th)[:, None], np.sin(th)[:, None]
+    v = v0 * c + np.cross(axis, v0) * s_ + np.outer(v0 @ axis, axis) * (1 - c)
+    b, tw = b0, tw0
     M = np.array(meta['cam_matrix'], float)
     R = M[:3, :3]
     vc = v @ R
