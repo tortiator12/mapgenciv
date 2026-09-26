@@ -92,11 +92,42 @@ def build(res=(1280, 720)):
     S.quadrant = IN.build_quadrant('Quadrant', S.m_wood, S.m_brass)
     S.armillary = IN.build_armillary('Armillary', S.m_wood, S.m_brass, math.radians(FB.LATITUDE_DEG))
     build_kilns(S)
+    sb = G.HexBatch('obs_step')
+    sb.add(G.box(0, 0, 0.0, 0.9, 0.7, STEP_H - 0.05), mat=0)
+    sb.add(G.box(0, 0, STEP_H - 0.05, 1.0, 0.8, 0.05), mat=1)
+    sb.finalize()
+    S.step = SC.link(bpy.data.objects.new('ObsStep', SC.hex_mesh('ObsStep', sb, np.ones(2, bool), [S.m_wood, S.m_plank])))
+    S.step.pass_index = SC.PASS['props']
+    lb = G.HexBatch('lantern')                                  # a horn lantern to read the scale by
+    lb.add(G.box(0, 0, 0.0, 0.2, 0.2, 0.03), mat=0)
+    lb.add(G.box(0, 0, 0.03, 0.16, 0.16, 0.24), mat=1)
+    for dx, dy in ((-0.09, -0.09), (0.09, -0.09), (0.09, 0.09), (-0.09, 0.09)):
+        lb.add(G.box(dx, dy, 0.03, 0.025, 0.025, 0.24), mat=0)
+    lb.add(G.tent(0, 0, 0.27, 0.22, 0.22, 0.1, 0.0), mat=0)
+    lb.add(G.beam([0, 0, 0.35], [0, 0, 0.42], 0.015), mat=0)
+    lb.finalize()
+    m_pane, nb, out = SC.new_material('LanternPane')
+    em = nb.new('ShaderNodeEmission')
+    em.inputs['Color'].default_value = (1.0, 0.6, 0.28, 1)
+    em.inputs['Strength'].default_value = 6.0
+    nb.feed(out.inputs['Surface'], em.outputs[0])
+    S.lantern = SC.link(bpy.data.objects.new('Lantern', SC.hex_mesh('Lantern', lb, np.ones(len(lb.t_on), bool), [S.m_wood, m_pane])))
+    S.lantern.pass_index = SC.PASS['props']
+    ld = bpy.data.lights.new('LanternLight', 'POINT')
+    ld.color = (1.0, 0.58, 0.26)
+    ld.shadow_soft_size = 0.06
+    S.lantern_light = SC.link(bpy.data.objects.new('LanternLight', ld))
     import figures as FG
     S.fig_observer = [FG.figure_mesh(f'Observer{k}', 'scholar', pose, S.m_figure) for k, pose in enumerate(OBSERVER_POSES)]
     S.observer = SC.link(bpy.data.objects.new('Observer', S.fig_observer[0]))
     S.observer.color = (0.30, 0.06, 0.05, 1.0)
     S.observer.pass_index = SC.PASS['worker']
+    S.fig_workers = [FG.figure_mesh(f'PlatformWorker{k}', 'craftsman', pose, S.m_figure) for k, pose in enumerate(WORKER_POSES)]
+    S.workers = []
+    for k in range(2):
+        o = SC.link(bpy.data.objects.new(f'PlatformWorker{k}', S.fig_workers[0]))
+        o.pass_index = SC.PASS['worker']
+        S.workers.append(o)
     return S
 
 
@@ -186,7 +217,7 @@ def build_kilns(S):
 
 
 def hide_extras(S):
-    for o in S.people + [S.tread, S.observer]:
+    for o in S.people + S.workers + [S.tread, S.observer, S.step, S.lantern, S.lantern_light]:
         o.hide_render = True
     for c, wheels, oxen in S.carts:
         c.hide_render = True
@@ -325,8 +356,12 @@ def shot_S2(S, v):
 
 
 S3_HOUR = 9.8
-OBSERVER_POSES = [dict(hand_r=(0.12, 0.3, 1.58), hand_l=(-0.12, 0.18, 1.45), look=(0.0, 1.0, 0.55 + 0.1 * k), stoop=-0.02)
-                  for k in range(3)]
+OBSERVER_POSES = [dict(hand_r=(0.0, 0.34, 1.7), hand_l=(-0.06, 0.6, 1.75 + 0.02 * k), look=(0.0, 1.0, 0.14 + 0.03 * k),
+                       stoop=0.02 + 0.02 * k, cap=True, elbow=(1.0, -0.35, -0.25)) for k in range(3)]
+OBSERVER_POSES.append(dict(hand_r=(0.1, 0.45, 1.35), hand_l=(-0.12, 0.4, 1.52), look=(0.0, 1.0, 0.05), stoop=0.04, cap=True))   # S4: at the sphere
+WORKER_POSES = [dict(hand_r=(0.22, 0.3, 1.72), hand_l=(-0.05, 0.42, 1.3), lean=0.05, look=(0.0, 1.0, 0.5)),     # hammering high
+                dict(hand_r=(0.14, 0.45, 0.92), hand_l=(-0.14, 0.45, 0.95), lean=0.16, look=(0.0, 1.0, -0.7)),   # bent to the work
+                dict(hand_r=(0.21, 0.2, 1.02), hand_l=(-0.2, 0.24, 1.0), lean=0.02, look=(0.3, 1.0, 0.1))]       # standing by
 
 
 def shot_S3(S, v):
@@ -346,75 +381,109 @@ def shot_S3(S, v):
     return meta
 
 
-S4_TC = (9.6, 10.8)
+S4_TC = (9.75, 10.75)
+S4_HOURS = (16.3, 16.8)                 # the sun sinks from 7 to 3 deg behind the battlements (WSW)
+S4_POS = dict(armillary=(-1.4, -0.3), triquetrum=(-2.0, 2.2), quadrant=(-1.0, -2.6), copernicus=(-1.2, -1.2))
 
 
 def shot_S4(S, v):
+    """From the platform's north-east corner into the sunset: the last rays through the
+    crenels, the instruments set up one after another, backlit, the brass glinting."""
     u = (v - 12.5) / 3.0
     e = TL.ease_io(u)
-    hour = 16.62 + 0.3 * u
+    hour = S4_HOURS[0] + (S4_HOURS[1] - S4_HOURS[0]) * u
     tc = S4_TC[0] + (S4_TC[1] - S4_TC[0]) * u
     cx, cy = FB.TOWER_C
     top = FB.TOWER_TOP
-    c0 = (cx + 2.6, cy + 2.8, top + 1.75)
-    c1 = (cx + 2.3, cy + 2.6, top + 1.7)
-    cam = (lerp3(c0, c1, e), (cx - 3.0, cy - 2.4, top + 1.2), 24.0)
+    deck = top - 0.1
+    c0 = (cx + 3.3, cy + 2.15, top + 1.3)
+    c1 = (cx + 2.9, cy + 1.85, top + 1.22)
+    look = Vector((math.cos(math.radians(90.0 - 250.0)), math.sin(math.radians(90.0 - 250.0)), 0.02))
+    loc = Vector(lerp3(c0, c1, e))
+    cam = (tuple(loc), tuple(loc + look * 20.0), 28.0)
     meta = env(S, v, hour, cam, tc, S4_SKY + 0.002 * v, cover=0.3)
     FC.smoke_light(S, hour)
-    # the instruments arrive one by one (the time-lapse of an evening's work)
     q = (tc - FB.TC_INSTR[0]) / (FB.TC_INSTR[1] - FB.TC_INSTR[0])
-    k = 0
+    P = S4_POS
     if q > 0.0:
-        IN.pose_armillary(S.armillary, tower_top_frame(-1.6, -1.2), spin=0.0)
+        IN.pose_armillary(S.armillary, tower_top_frame(*P['armillary']), spin=0.0)
     if q > 0.35:
-        IN.pose_triquetrum(S.triquetrum, tower_top_frame(1.2, -2.2, math.radians(200.0)), math.radians(60.0))
+        IN.pose_triquetrum(S.triquetrum, tower_top_frame(*P['triquetrum'], math.radians(200.0)), math.radians(55.0))
     if q > 0.7:
-        S.quadrant.matrix_world = tower_top_frame(-2.6, 1.8, math.radians(90.0))
+        S.quadrant.matrix_world = tower_top_frame(*P['quadrant'], math.radians(90.0))
         S.quadrant.hide_render = False
-    for j, (dx, dy, mode) in enumerate(((0.4, 0.4, 'haul'), (-0.6, 2.4, 'carry'), (2.2, 0.8, 'stand'))):
-        if SC.hop(j + 30, v * 2.0, 2.0) < 0.75:
-            L.place_person(S, k, (cx + dx, cy + dy, top - 0.1), math.radians(220.0), mode, 2.0 * v + j)
-            S.people[k].color = FROMBORK_CLOTHES[j]
-            k += 1
+    # two carpenters: first at the sphere and the parapet, then at the triquetrum and the quadrant
+    spots = [(P['armillary'], (-0.2, 0.85)) if q <= 0.35 else (P['triquetrum'], (0.6, -0.55)),
+             ((-3.0, 0.4), (1.0, 0.0)) if q <= 0.7 else (P['quadrant'], (0.75, 0.35))]
+    for j, ((ix, iy), (ox, oy)) in enumerate(spots):
+        w = S.workers[j]
+        wx, wy = ix + ox, iy + oy
+        k_pose = int(SC.hop(j + 40, v * 2.0, 1.4) * 2.99) if (j == 0 or q > 0.7) else 2
+        w.data = S.fig_workers[k_pose]
+        w.matrix_world = (Matrix.Translation((cx + wx, cy + wy, deck))
+                          @ Matrix.Rotation(math.atan2(iy - wy, ix - wx) - math.pi / 2, 4, 'Z'))
+        w.color = ((0.36, 0.25, 0.15, 1.0), (0.28, 0.28, 0.27, 1.0))[j]
+        w.hide_render = False
+    # Copernicus by the armillary sphere, turned to it
+    ax, ay = P['armillary']
+    px, py = P['copernicus']
     S.observer.hide_render = False
-    S.observer.data = S.fig_observer[0]
-    S.observer.matrix_world = tower_top_frame(0.2, -0.3, math.radians(225.0) - math.pi / 2)
-    for i in range(k, len(S.people)):
-        S.people[i].hide_render = True
+    S.observer.data = S.fig_observer[3]
+    S.observer.matrix_world = (Matrix.Translation((cx + px, cy + py, deck))
+                               @ Matrix.Rotation(math.atan2(ay - py, ax - px) - math.pi / 2, 4, 'Z'))
     meta.update(stars=0.0)
     return meta
 
 
-S5_HOURS = (19.1, 20.8)
+S5_HOURS = (19.9, 20.5)                 # the moon climbs from 8 to 13 deg in the ENE
+S5_CAM = (-2.9, -2.9, 0.9)              # low in the platform's south-west corner, looking NE
+S5_OBS = (-0.81, -0.22)                 # where Copernicus stands on his step (from the tower centre): 3/4 from behind
+STEP_H = 0.38                           # the step lifts his eye to the triquetrum's eye end
 
 
 def shot_S5(S, v):
     u = (v - 15.5) / 4.5
+    e = TL.ease_io(u)
     hour = S5_HOURS[0] + (S5_HOURS[1] - S5_HOURS[0]) * u
     cx, cy = FB.TOWER_C
     top = FB.TOWER_TOP
+    deck = top - 0.1
     md = moon_dir(hour)
     m_az = math.atan2(md[1], md[0])
     m_el = math.asin(max(-1.0, min(1.0, md[2])))
-    az_c = math.radians(90.0 - 47.0)                              # looking NE (compass 47 deg), 24 deg up
-    look = Vector((math.cos(az_c), math.sin(az_c), math.tan(math.radians(24.0))))
-    loc = Vector((cx - 2.3, cy - 2.6, top + 1.7))
-    cam = (tuple(loc), tuple(loc + look * 50.0), 14.0)
-    meta = env(S, v, hour, cam, 12.0, S5_SKY, cover=0.1, hdri=0.0, moon=0.35, moon_light=1.0)
+    fwd = Vector((math.cos(m_az), math.sin(m_az), 0.0))
+    left = Vector((-math.sin(m_az), math.cos(m_az), 0.0))
+    # the camera tilts from Copernicus and the rising moon up into the turning sky
+    cam_p = Vector((cx + S5_CAM[0], cy + S5_CAM[1], top + S5_CAM[2]))
+    yaw = math.radians(90.0 - 45.0)
+    pitch = math.radians(14.0 + 16.0 * e)
+    look = Vector((math.cos(yaw) * math.cos(pitch), math.sin(yaw) * math.cos(pitch), math.sin(pitch)))
+    cam = (tuple(cam_p), tuple(cam_p + look * 50.0), 14.0)
+    meta = env(S, v, hour, cam, 12.0, S5_SKY, cover=0.1, hdri=0.0, moon=0.35, moon_light=1.0, moon_halo=0.03)
     FC.smoke_light(S, hour)
-    # the triquetrum turned to the moon's azimuth, its rule at the moon's zenith distance
-    M = tower_top_frame(0.6, 0.4, m_az)
-    eye = IN.pose_triquetrum(S.triquetrum, M, math.pi / 2 - max(m_el, math.radians(4.0)))
-    S.observer.hide_render = False
+    # Copernicus on his step, his eye at the eye end of the triquetrum; the post stands
+    # 2.2 m further towards the moon, its rule at the moon's zenith distance
     kk = min(int(u * 3), 2)
+    pose_k = OBSERVER_POSES[kk]
+    z = math.pi / 2 - max(m_el, math.radians(4.0))
+    obs = Vector((cx + S5_OBS[0], cy + S5_OBS[1], deck))
+    foot = obs + fwd * (IN.TQ_AB * math.sin(z) + 0.08 + pose_k['stoop']) - left * 0.1
+    IN.pose_triquetrum(S.triquetrum, Matrix.Translation(foot) @ Matrix.Rotation(m_az, 4, 'Z'), z)
+    rot = Matrix.Rotation(m_az - math.pi / 2, 4, 'Z')
+    S.step.matrix_world = Matrix.Translation(obs) @ rot
+    S.step.hide_render = False
+    S.observer.hide_render = False
     S.observer.data = S.fig_observer[kk]
-    S.observer.matrix_world = (Matrix.Translation((eye.x - 0.35 * math.cos(m_az), eye.y - 0.35 * math.sin(m_az), top - 0.1))
-                               @ Matrix.Rotation(m_az - math.pi / 2, 4, 'Z'))
-    IN.pose_armillary(S.armillary, tower_top_frame(-2.0, 1.6), spin=0.0)
+    S.observer.matrix_world = Matrix.Translation(obs + Vector((0.0, 0.0, STEP_H))) @ rot
+    IN.pose_armillary(S.armillary, tower_top_frame(-2.6, -0.2), spin=0.0)
+    lp = obs + fwd * 0.85 - left * 0.4                           # the lantern on the deck, right in front of him
+    S.lantern.matrix_world = Matrix.Translation(lp) @ rot
+    S.lantern_light.location = lp + Vector((0.0, 0.0, 0.16))
+    S.lantern_light.data.energy = 9.0 * (0.9 + 0.1 * SC.smooth_rand(7, v, 5.0))
+    S.lantern.hide_render = S.lantern_light.hide_render = False
     for i in range(len(S.people)):
         S.people[i].hide_render = True
-    trail = (hour - S5_HOURS[0]) + 0.05
-    meta.update(stars=0.8, star_trail=trail, expo_mul=0.7)
+    meta.update(stars=0.8, star_trail=0.8 + (hour - S5_HOURS[0]), expo_mul=0.7, sky_glow=0.15)
     return meta
 
 

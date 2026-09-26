@@ -61,32 +61,57 @@ def head_hair(p, neck_top, look=(0.0, 1.0, 0.0), cap=False, bob=True):
     return hc
 
 
+def arm(sh, hand, s, upper=0.31, fore=0.29, pole=(1.0, -0.2, -0.9)):
+    """Two-bone arm: (elbow, hand) for a shoulder and a hand target, the elbow bent
+    outwards and down (s = +1 right, -1 left); a hand out of reach is pulled in."""
+    sh = np.asarray(sh, float)
+    hand = np.asarray(hand, float)
+    d = hand - sh
+    L = float(np.linalg.norm(d))
+    u = d / max(L, 1e-6)
+    L = min(max(L, abs(upper - fore) + 0.02), upper + fore - 0.005)
+    hand = sh + u * L
+    a = (upper ** 2 - fore ** 2 + L ** 2) / (2 * L)
+    h = math.sqrt(max(upper ** 2 - a ** 2, 0.0))
+    pv = np.array([s * pole[0], pole[1], pole[2]], float)
+    pv -= u * (pv @ u)
+    pv /= np.linalg.norm(pv) + 1e-9
+    return sh + u * a + pv * h, hand
+
+
 def scholar(pose):
-    """A canon in a long robe.  pose: hand_r, hand_l (targets), look (head direction), stoop (m)."""
+    """A canon in a Schaube, the long open coat of the scholars: a broad fur collar
+    over the shoulders, wide hanging sleeves, falling in folds to the ankles.
+    pose: hand_r, hand_l (targets), look (head direction), stoop (m), cap (bool)."""
     p = []
     stoop = pose.get('stoop', 0.0)
     sh_z = 1.45
     chest = np.array([0.0, stoop * 0.6, 1.3])
     neck = np.array([0.0, stoop, 1.52])
-    # the robe: a flared bell from the shoulders to the floor, folds deepening downwards
-    _limb(p, (0.0, stoop * 0.4, 1.42), (0.0, -0.02, 0.02), 0.19, 0.36, k=0.05, tag=R_ROBE)
-    p[-1].disp = _folds(0.0, 0.0, 9, 0.02, 1.4)
-    _ell(p, chest, (0.19, 0.13, 0.2), k=0.06, tag=R_ROBE)
-    _ell(p, neck + [0, 0, -0.08], (0.21, 0.15, 0.06), k=0.03, tag=R_FUR)                  # fur collar
+    # the coat: from the shoulders to the ankles, a little wider at the hem, folds deepening downwards
+    _limb(p, (0.0, stoop * 0.4, 1.42), (0.0, -0.01, 0.03), 0.2, 0.3, k=0.05, tag=R_ROBE)
+    p[-1].disp = _folds(0.0, 0.0, 9, 0.018, 1.4)
+    _ell(p, chest, (0.2, 0.13, 0.2), k=0.06, tag=R_ROBE)
+    _ell(p, neck + [0, -0.01, -0.09], (0.25, 0.16, 0.065), k=0.03, tag=R_FUR)                # fur collar over the shoulders
+    for s in (1, -1):                                                                        # fur facings down the front
+        _limb(p, neck + [s * 0.09, 0.2 - stoop, -0.2], (s * 0.12, 0.28, 0.25), 0.04, 0.04, k=0.02, tag=R_FUR)
     _limb(p, neck + [0, 0, -0.04], neck + [0, 0, 0.05], 0.05, 0.045, k=0.02, tag=R_SKIN)
-    head_hair(p, neck + [0, 0, 0.04], look=pose.get('look', (0.0, 1.0, -0.2)))
+    hc = head_hair(p, neck + [0, 0, 0.04], look=pose.get('look', (0.0, 1.0, -0.2)), cap=False)
+    if pose.get('cap'):                                                                      # a dark beret
+        _ell(p, hc + [0, -0.012, 0.075], (0.115, 0.115, 0.045), k=0.012, tag=R_CAP)
     for s, key in ((1, 'hand_r'), (-1, 'hand_l')):
-        sh = np.array([s * 0.2, stoop * 0.8, sh_z])
-        hand = np.array(pose.get(key, (s * 0.22, 0.1, 0.95)), float)
-        mid = sh + (hand - sh) * 0.5 + np.array([s * 0.08, -0.05, -0.06])
-        _limb(p, sh, mid, 0.07, 0.075, k=0.03, tag=R_ROBE)                             # wide sleeve
-        _limb(p, mid, hand - (hand - mid) * 0.12, 0.075, 0.085, k=0.02, tag=R_ROBE)
+        sh = np.array([s * 0.21, stoop * 0.8, sh_z])
+        el, hand = arm(sh, pose.get(key, (s * 0.22, 0.1, 0.95)), s, pole=pose.get('elbow', (1.0, -0.2, -0.9)))
+        _limb(p, sh, el, 0.075, 0.07, k=0.03, tag=R_ROBE)                                  # puffed upper sleeve
+        wr = hand - (hand - el) * 0.16
+        _limb(p, el, wr, 0.07, 0.085, k=0.02, tag=R_ROBE)                                  # the wide sleeve, open at the wrist
         _ell(p, hand, (0.035, 0.05, 0.022), k=0.012, tag=R_SKIN)
     return p
 
 
 def craftsman(pose):
-    """A carpenter at the bench.  pose: hand_r, hand_l, lean (m forward), step (m)."""
+    """A carpenter: a jerkin with short skirts (its colour from the object), a leather
+    apron, hose, a cap.  pose: hand_r, hand_l, lean (m forward), step (m), look."""
     p = []
     lean = pose.get('lean', 0.0)
     step = pose.get('step', 0.18)
@@ -96,19 +121,19 @@ def craftsman(pose):
     _ell(p, hip, (0.16, 0.11, 0.1), k=0.04, tag=R_HOSE)
     _ell(p, chest, (0.18, 0.12, 0.2), k=0.06, tag=R_SHIRT)
     _limb(p, hip, chest, 0.14, 0.15, k=0.05, tag=R_SHIRT)
+    _limb(p, hip + [0, 0, 0.1], hip + [0, lean * 0.1, -0.2], 0.17, 0.215, k=0.03, tag=R_SHIRT)      # the jerkin's skirts
     for s, fy in ((1, step), (-1, -step * 0.4)):                        # legs in hose, shoes
         knee = np.array([s * 0.1, fy * 0.5 + 0.03, 0.5])
         ank = np.array([s * 0.11, fy, 0.08])
         _limb(p, hip + [s * 0.08, 0, -0.02], knee, 0.085, 0.055, k=0.03, tag=R_HOSE)
         _limb(p, knee, ank, 0.055, 0.04, k=0.02, tag=R_HOSE)
         _ell(p, ank + [0, 0.06, -0.04], (0.045, 0.12, 0.04), k=0.02, tag=R_APRON)
-    _ell(p, chest + [0, 0.12, -0.25], (0.17, 0.03, 0.42), k=0.03, tag=R_APRON)           # the leather apron
+    _ell(p, chest + [0, 0.1, -0.28], (0.18, 0.05, 0.42), k=0.03, tag=R_APRON)            # the leather apron
     _limb(p, neck + [0, 0, -0.04], neck + [0, 0, 0.05], 0.05, 0.045, k=0.02, tag=R_SKIN)
     head_hair(p, neck + [0, 0, 0.04], look=pose.get('look', (0.0, 1.0, -0.4)), cap=True, bob=False)
     for s, key in ((1, 'hand_r'), (-1, 'hand_l')):
         sh = np.array([s * 0.2, lean * 1.1, 1.45])
-        hand = np.array(pose.get(key, (s * 0.2, 0.3, 0.95)), float)
-        el = sh + (hand - sh) * 0.5 + np.array([s * 0.12, -0.06, -0.12])
+        el, hand = arm(sh, pose.get(key, (s * 0.2, 0.3, 0.95)), s, upper=0.3, fore=0.28)
         _limb(p, sh, el, 0.055, 0.045, k=0.03, tag=R_SHIRT)
         _limb(p, el, hand, 0.045, 0.035, k=0.02, tag=R_SKIN)
         _ell(p, hand, (0.035, 0.05, 0.022), k=0.012, tag=R_SKIN)
@@ -155,7 +180,7 @@ def mat_figure(name='Figure', robe=(0.10, 0.05, 0.04)):
     oi = nb.new('ShaderNodeObjectInfo')
     cloth = oi.outputs['Color']
     cols = {R_ROBE: None, R_FUR: (0.16, 0.11, 0.07), R_SKIN: (0.50, 0.33, 0.24), R_HAIR: (0.06, 0.04, 0.03),
-            R_APRON: (0.22, 0.14, 0.08), R_SHIRT: (0.70, 0.66, 0.58), R_HOSE: (0.18, 0.16, 0.14), R_CAP: (0.28, 0.20, 0.12),
+            R_APRON: (0.22, 0.14, 0.08), R_SHIRT: None, R_HOSE: (0.18, 0.16, 0.14), R_CAP: (0.28, 0.20, 0.12),
             R_WOOD: (0.35, 0.24, 0.14)}
     col = cloth
     for k, c in cols.items():

@@ -653,7 +653,7 @@ def build_workshop(S):
     S.copernicus = SC.link(bpy.data.objects.new('Copernicus', S.fig_copernicus[0]), coll)
     S.copernicus.color = (0.30, 0.06, 0.05, 1.0)                  # the red coat of the Torun portrait
     S.carpenter = SC.link(bpy.data.objects.new('Carpenter', S.fig_carpenter[0]), coll)
-    S.carpenter.color = (0.55, 0.50, 0.42, 1.0)
+    S.carpenter.color = (0.42, 0.31, 0.20, 1.0)
     for o in (S.copernicus, S.carpenter):
         o.pass_index = SC.PASS['worker']
     # dust in the sunbeam: a thin volume filling the room

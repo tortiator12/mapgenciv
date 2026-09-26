@@ -614,6 +614,7 @@ def build_world():
     moon.name = 'moon_dir'
     t_cloud = nb.value(0.0, 'cloud_time')
     moon_k = nb.value(0.0, 'moon')
+    moon_halo = nb.value(0.08, 'moon_halo')
     sun_k = nb.value(1.0, 'sun_disc')
     cover = nb.value(0.5, 'cover')
     gain = nb.value(3.2, 'cloud_gain')
@@ -685,7 +686,7 @@ def build_world():
     # stars (hidden by clouds) and a full moon
     cm = nb.vmath('DOT_PRODUCT', D, moon.outputs[0])
     disc = nb.smooth(0.99972, 0.99980, cm)
-    halo = nb.math('MULTIPLY', nb.math('POWER', nb.math('MAXIMUM', cm, 0.0), 400.0), 0.08)
+    halo = nb.math('MULTIPLY', nb.math('POWER', nb.math('MAXIMUM', cm, 0.0), 400.0), moon_halo)
     mk = nb.math('MULTIPLY', moon_k, nb.math('ADD', nb.math('MULTIPLY', disc, nb.math('SUBTRACT', 1.0, nb.math('MULTIPLY', dens, 0.85))), halo))
     sky = nb.mix(mk, sky, (0.85, 0.9, 1.0, 1.0), blend='ADD')
     # sun disc
@@ -2403,6 +2404,8 @@ def pose_environment(S, t, hour, **kw):
     nt['cloud_time'].outputs[0].default_value = kw.get('cloud_t', t * 1.6)
     nt['cloud_gain'].outputs[0].default_value = kw.get('cloud_gain', 3.2)
     nt['moon'].outputs[0].default_value = 6.0 * night * moon_k
+    if 'moon_halo' in nt:
+        nt['moon_halo'].outputs[0].default_value = kw.get('moon_halo', 0.08)
     nt['sun_disc'].outputs[0].default_value = 30.0 * TL.smoothstep(-1.0, 1.0, el_deg)
     if 'hdri_k' in nt:
         nt['hdri_k'].outputs[0].default_value = kw.get('hdri', 0.0)

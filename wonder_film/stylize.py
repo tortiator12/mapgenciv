@@ -418,6 +418,9 @@ def stylize_paint(rgb, Z, ID, meta, exposure, frame, paint=True):
         stars = 1.0 - np.exp(-st * star_k * exposure * 2.2)
 
     bright = np.minimum(np.maximum(lin - 1.0, 0.0), 30.0)
+    sky_glow = meta.get('sky_glow', 1.0)                # < 1: a moon without a blown-up halo
+    if sky_glow != 1.0:
+        bright = bright * np.where(sky, np.float32(sky_glow), np.float32(1.0))[..., None]
     glow = np.zeros_like(lin)
     for sig, k in ((3.0, 0.22), (10.0, 0.16), (30.0, 0.12)):
         glow += cv2.GaussianBlur(bright, (0, 0), sig * s) * k
