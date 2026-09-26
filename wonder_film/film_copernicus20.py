@@ -92,6 +92,7 @@ def build(res=(1280, 720)):
     S.quadrant = IN.build_quadrant('Quadrant', S.m_wood, S.m_brass)
     S.armillary = IN.build_armillary('Armillary', S.m_wood, S.m_brass, math.radians(FB.LATITUDE_DEG))
     build_kilns(S)
+    build_yard(S)
     sb = G.HexBatch('obs_step')
     sb.add(G.box(0, 0, 0.0, 0.9, 0.7, STEP_H - 0.05), mat=0)
     sb.add(G.box(0, 0, STEP_H - 0.05, 1.0, 0.8, 0.05), mat=1)
@@ -183,7 +184,7 @@ def _compat(S):
     S.crane_tip_tall = S.crane_tip
 
 
-KILNS = [(-232.0, -190.0, 0.5), (-256.0, -170.0, 0.5)]
+KILNS = [(-232.0, -190.0, 0.5), (-214.0, -206.0, 0.5)]
 
 
 def build_kilns(S):
@@ -216,6 +217,46 @@ def build_kilns(S):
     S.kilns.pass_index = SC.PASS['props']
 
 
+YARD = (-9.0, -9.0)                     # the works at the tower's south-west foot (from the tower centre)
+LIFT_PT = (-7.6, -7.6)                  # where the crane on the tower takes up its loads
+ROAD = ((-226.0, -176.0), (-146.0, -96.0))
+
+
+def build_yard(S):
+    """The works outside the tower's south-west corner: pallets of bricks, the mortar
+    trough, a lime pit, a sand heap, stacked timber and the masons' lodge."""
+    cx, cy = FB.TOWER_C
+    yb = G.HexBatch('yard')
+    rng = np.random.default_rng(12)
+
+    def gz(x, y):
+        return FB.ground_z(x, y)
+    for k in range(7):                                                   # pallets of new bricks
+        x, y = cx - 11.0 - 1.7 * (k % 4), cy - 13.5 + 1.4 * (k // 4) + rng.uniform(-0.2, 0.2)
+        yb.add(G.box(x, y, gz(x, y) - 0.1, 1.4, 1.0, 0.9 + 0.3 * (k % 2), rng.uniform(-0.1, 0.1)), mat=0)
+    x, y = cx - 8.5, cy - 11.0                                           # the mortar trough
+    yb.add(G.box(x, y, gz(x, y) - 0.1, 2.4, 1.2, 0.5, 0.3), mat=1)
+    yb.add(G.box(x, y, gz(x, y) + 0.36, 2.2, 1.0, 0.06, 0.3), mat=2)
+    x, y = cx - 14.0, cy - 7.5                                           # the lime pit with its rim
+    yb.add(G.box(x, y, gz(x, y) - 0.05, 3.2, 3.2, 0.12), mat=3)
+    for dx, dy, sx, sy in ((0, 1.7, 3.6, 0.25), (0, -1.7, 3.6, 0.25), (1.7, 0, 0.25, 3.2), (-1.7, 0, 0.25, 3.2)):
+        yb.add(G.box(x + dx, y + dy, gz(x, y) - 0.05, sx, sy, 0.3), mat=1)
+    x, y = cx - 7.0, cy - 16.0                                           # the sand heap
+    yb.add(G.tent(x, y, gz(x, y) - 0.2, 4.0, 3.0, 1.4, 0.4), mat=4)
+    for k in range(9):                                                   # stacked beams
+        x, y = cx - 18.0, cy - 11.0 + 0.35 * (k % 3)
+        yb.add(G.box(x, y, gz(x, y) + 0.3 * (k // 3), 7.0, 0.3, 0.3), mat=1)
+    x, y = cx - 19.0, cy - 18.5                                          # the masons' lodge
+    zl = gz(x, y)
+    yb.add(G.box(x, y, zl - 0.3, 6.0, 4.0, 2.9), mat=1)
+    yb.add(G.tent(x, y, zl + 2.6, 6.6, 4.6, 1.8, 0.0), mat=5)
+    yb.finalize()
+    mats = [S.m_brick_new, S.m_wood, SC.mat_simple('Mortar', (0.62, 0.60, 0.55), 0.95),
+            SC.mat_simple('Lime', (0.86, 0.85, 0.80), 0.9), SC.mat_simple('Sand', (0.72, 0.62, 0.44), 0.95), S.m_roof]
+    S.yard = SC.link(bpy.data.objects.new('Yard', SC.hex_mesh('Yard', yb, np.ones(len(yb.t_on), bool), mats)))
+    S.yard.pass_index = SC.PASS['props']
+
+
 def hide_extras(S):
     for o in S.people + S.workers + [S.tread, S.observer, S.step, S.lantern, S.lantern_light]:
         o.hide_render = True
@@ -242,8 +283,8 @@ def tower_top_frame(dx=0.0, dy=0.0, rot=0.0):
 
 
 # ================================================================== shots
-S1_CAM0 = ((-335.0, -300.0, 52.0), (-40.0, 0.0, 26.0))
-S1_CAM1 = ((-318.0, -318.0, 52.0), (-36.0, -4.0, 26.0))
+S1_CAM0 = (-216.0, -266.0, 32.0)
+S1_CAM1 = (-212.0, -256.0, 31.5)
 S1_SKY, S2_SKY, S3_SKY, S4_SKY, S5_SKY = 0.7, 1.9, 0.0, 3.6, 5.0
 
 
@@ -253,34 +294,49 @@ def env(S, v, hour, cam, tc, rot, **kw):
                    hdri_rot=rot, cam=cam, **kw)
 
 
+def road_point(d):
+    """Point and heading (uphill) on the brick road, d in 0..1 from the kilns to the works."""
+    (x0, y0), (x1, y1) = ROAD
+    x, y = x0 + (x1 - x0) * d, y0 + (y1 - y0) * d
+    return x, y, math.atan2(y1 - y0, x1 - x0)
+
+
 def shot_S1(S, v):
+    """Morning: the kilns smoke in the foreground, ox carts bring bricks up the road
+    to the works at the corner of the close, the cathedral above, the lagoon beyond."""
     u = v / 3.0
     e = TL.ease_io(u)
     hour = 8.3 + 0.15 * u
-    cam = (lerp3(S1_CAM0[0], S1_CAM1[0], e), lerp3(S1_CAM0[1], S1_CAM1[1], e), 34.0)
+    loc = Vector(lerp3(S1_CAM0, S1_CAM1, e))
+    az = math.radians(90.0 - 12.0)
+    look = Vector((math.cos(az), math.sin(az), -0.1))
+    cam = (tuple(loc), tuple(loc + look * 100.0), 32.0)
     meta = env(S, v, hour, cam, 0.05, S1_SKY + 0.002 * v)
     FC.smoke_light(S, hour)
     S.m_kiln_glow.node_tree.nodes['furnace_k'].outputs[0].default_value = 0.5
+    for ci, (d0, sp, up) in enumerate(((0.08, 0.02, True), (0.3, 0.018, True), (0.5, 0.022, False))):
+        d = (d0 + sp * v) if up else (d0 - sp * v)
+        x, y, hd = road_point(d)
+        FC.place_cart(S, ci, (x, y), hd if up else hd + math.pi, 9.0 * v, FB.ground_z(x, y))
+    cx, cy = FB.TOWER_C
     k = 0
-    # carts up the road to the gate, workers at the tower's footing, canons in the close
-    gx, gy = 20.0, -75.0
-    for ci, (d0, sp) in enumerate(((60.0, 1.0), (140.0, 0.9), (20.0, 1.1))):
-        d = d0 - sp * v * (1 if ci != 2 else -1)
-        x, y = gx - 40.0 - 0.8 * d, gy - 12.0 - 0.6 * d
-        hd = math.atan2(0.6, 0.8) if ci != 2 else math.atan2(-0.6, -0.8)
-        FC.place_cart(S, ci, (x, y), hd, sp * v, FB.ground_z(x, y))
     rng = np.random.default_rng(5)
-    for j in range(16):
-        a = rng.uniform(0, 2 * math.pi)
-        r = rng.uniform(6.0, 14.0)
-        x, y = FB.TOWER_C[0] + 8 + r * math.cos(a), FB.TOWER_C[1] + 8 + r * math.sin(a)
-        L.place_person(S, k, (x, y, FB.ground_z(x, y)), a + math.pi, ('carry', 'hammer', 'stand', 'haul')[j % 4], 2.0 * v + j)
+    for j in range(14):                                          # masons and labourers at the works
+        x = cx + YARD[0] + rng.uniform(-8.0, 5.0)
+        y = cy + YARD[1] + rng.uniform(-8.0, 5.0)
+        L.place_person(S, k, (x, y, FB.ground_z(x, y)), rng.uniform(0, 2 * math.pi), ('carry', 'hammer', 'stand', 'haul')[j % 4], 2.0 * v + j)
         S.people[k].color = FROMBORK_CLOTHES[j % len(FROMBORK_CLOTHES)]
         k += 1
-    for j in range(5):                                            # canons crossing the close
-        x, y = -20.0 + 6.0 * j + 1.2 * v, -30.0 + 3.0 * j
-        L.place_person(S, k, (x, y, FB.PLATEAU), 0.2, 'walk', 2.0 * v + j)
+    for j in range(2):                                           # two canons come to look at the works
+        x, y = cx - 16.0 + 1.1 * v + 1.2 * j, cy - 4.0 - 1.4 * j
+        L.place_person(S, k, (x, y, FB.ground_z(x, y)), -0.4, 'walk', 2.0 * v + j)
         S.people[k].color = (0.05, 0.045, 0.045, 1.0)
+        k += 1
+    for j in range(6):                                           # brick-makers at the kilns
+        kx, ky, _ = KILNS[j % 2]
+        x, y = kx - 7.0 + 3.5 * (j // 2), ky - 7.0 - 1.5 * (j % 2)
+        L.place_person(S, k, (x, y, FB.ground_z(x, y)), 0.5 + j, ('carry', 'stand', 'haul')[j % 3], 2.0 * v + j)
+        S.people[k].color = FROMBORK_CLOTHES[(j + 3) % len(FROMBORK_CLOTHES)]
         k += 1
     FC.smoke(S, [life.Plume((x + 3.0 * math.cos(r_), y + 3.0 * math.sin(r_), FB.ground_z(x, y) + 10.0), n=10, life=14.0,
                             rise=1.1, drift=1.6, size0=2.0, grow=0.9, dens=0.6, seed=i) for i, (x, y, r_) in enumerate(KILNS)],
@@ -302,11 +358,11 @@ def shot_S2(S, v):
     tc = lp.tc(v)
     u = TL.ease_io((v - 3.0) / 6.0)
     cx, cy = FB.TOWER_C
-    b = math.radians(165.0 + 28.0 * u)
-    dist = 92.0 - 10.0 * u
-    loc = (cx + dist * math.sin(b), cy + dist * math.cos(b), FB.PLATEAU + 9.0 + 7.0 * u)
-    tz = FB.PLATEAU + 6.0 + 0.55 * max(S.sched.height(tc) - FB.PLATEAU, 0.0)
-    cam = (loc, (cx + 6.0, cy + 8.0, tz), 32.0)
+    b = math.radians(172.0 + 26.0 * u)
+    dist = 64.0 - 6.0 * u
+    loc = (cx + dist * math.sin(b), cy + dist * math.cos(b), FB.PLATEAU + 8.0 + 8.0 * u)
+    tz = FB.PLATEAU + 3.0 + 0.45 * max(S.sched.height(tc) - FB.PLATEAU, 0.0)
+    cam = (loc, (cx - 1.0, cy + 2.0, tz), 26.0)
     meta = env(S, v, hour, cam, tc, S2_SKY + 0.05 * (v - 3.0), cover=0.35 + 0.08 * math.sin(v))
     FC.smoke_light(S, hour)
     hop_t = 2.0 * v
@@ -316,12 +372,13 @@ def shot_S2(S, v):
     # the treadwheel crane on the wall top lifts bricks from the courtyard
     if building and wall > FB.PLATEAU + 2.0:
         c, rope, load = S.cranes[5]
-        slew = math.radians(30.0 + 70.0 * SC.smooth_rand(3, hop_t, 1.2))
-        base = Vector((cx + 1.2, cy + 1.2, wall))
+        slew = math.radians(210.0 + 30.0 * SC.smooth_rand(3, hop_t, 1.2))    # out over the works
+        base = Vector((cx - 2.0, cy - 2.0, wall))
         c.matrix_world = Matrix.Translation(base) @ Matrix.Rotation(slew, 4, 'Z')
         c.hide_render = rope.hide_render = load.hide_render = False
         tip = c.matrix_world @ Vector(S.crane_tip)
-        lz = FB.PLATEAU + 1.0 + SC.hop(11, hop_t, 3.0) * (tip.z - FB.PLATEAU - 3.0)
+        gl = FB.ground_z(tip.x, tip.y)
+        lz = gl + 1.0 + SC.hop(11, hop_t, 3.0) * (tip.z - gl - 3.0)
         load.matrix_world = Matrix.Translation((tip.x, tip.y, lz)) @ Matrix.Rotation(slew, 4, 'Z')
         rope.matrix_world = Matrix.Translation(tip) @ Matrix.Diagonal((1, 1, max(tip.z - lz, 0.3), 1))
         k = L.pose_treadwheel(S, 0.9 * hop_t, walkers=2, first_person=k, walk_ph=hop_t * 3.0)
@@ -344,9 +401,9 @@ def shot_S2(S, v):
         if SC.hop(j + 90, hop_t, 1.5) > 0.8:
             continue
         a = 2 * math.pi * SC.hop(j + 100, hop_t, 1.5)
-        r = 7.0 + 8.0 * SC.hop(j + 110, hop_t, 1.5)
-        x, y = cx + 10.0 + r * math.cos(a), cy + 10.0 + r * math.sin(a)
-        L.place_person(S, k, (x, y, FB.PLATEAU), a, ('carry', 'walk', 'haul', 'stand')[j % 4], 2 * math.pi * SC.hop(j + 120, hop_t, 1.5))
+        r = 2.0 + 6.0 * SC.hop(j + 110, hop_t, 1.5)
+        x, y = cx + YARD[0] + r * math.cos(a), cy + YARD[1] + r * math.sin(a)
+        L.place_person(S, k, (x, y, FB.ground_z(x, y)), a, ('carry', 'walk', 'haul', 'stand')[j % 4], 2 * math.pi * SC.hop(j + 120, hop_t, 1.5))
         S.people[k].color = FROMBORK_CLOTHES[(j + 2) % len(FROMBORK_CLOTHES)]
         k += 1
     for i in range(k, len(S.people)):

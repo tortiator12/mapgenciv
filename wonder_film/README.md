@@ -190,6 +190,49 @@ venv/bin/python wonder_film/render.py --film colossus20 --out /tmp/c20 --frames 
 venv/bin/python wonder_film/stylize.py --inp /tmp/c20 --out /tmp/c20png --look paint --no-titles --film colossus20
 ```
 
+## Civ1 game film: *Kopernikus' Observatorium* (20 s)
+
+`wunderfilm_10_copernicus`, the third film of the storyboard, in a world of
+its own (`frombork.py`): the cathedral hill of Frombork (Frauenburg) above the
+Vistula Lagoon at 54.4° N, the brick cathedral with its buttresses, the walls
+of the close with towers and the south gate, the canons' houses, the town on
+the terrace below, farmland, groves and dark stands of pine. For the game the
+wonder is a brick observation tower at the south-west corner of the close
+(after the "Copernicus tower"), with a flat platform and a parapet.
+
+| shot | time | what you see | clock |
+|---|---|---|---|
+| S1 | 0–3 s | a late-autumn morning: two brick kilns smoke in the foreground, ox carts bring bricks up the road to the works at the corner of the close, the cathedral above, the lagoon beyond | real time |
+| S2 | 3–9 s | the tower rises lift by lift in its scaffold, a treadwheel crane on the wall top swings its loads up from the works (pallets, mortar trough, lime pit, the masons' lodge); parapet and merlons, the scaffold struck from the top; sun and cloud shadows pass | time-lapse |
+| S3 | 9–12.5 s | the workshop, slanting morning light: the carpenter planes the rules of the triquetrum at the window, Copernicus at his table with parchments, candles and a small armillary sphere | real time |
+| S4 | 12.5–15.5 s | sunset, from the platform's north-east corner: the armillary sphere, the triquetrum and the quadrant are set up one after another, two carpenters at work, Copernicus at the sphere | time-lapse |
+| S5 | 15.5–20 s | night: Copernicus, a silhouette on a step at the eye end of the triquetrum, sights the moon rising in the east-north-east; a reading lantern at his feet; the camera tilts up into the stars turning round the pole, 54° up | time-lapse |
+
+The instruments follow *De revolutionibus* (1543): the triquetrum (Ptolemy's
+parallactic rulers; post and sighting rule both 2.2 m, the graduated lower
+rule reads the chord of the zenith distance), a quadrant in the meridian and
+an armillary sphere with its pole axis at the latitude of Frombork
+(`instruments.py`). Because the sighting rule is hinged at the top of the
+post, the eye end stands about 2 m high for a moon 8–13° up; Copernicus
+stands on a step. The people close to the camera are sculpted like the
+Colossus (`figures.py`: a canon's Schaube with fur collar and beret,
+carpenters in jerkins and aprons, two-bone arms); farther away the skinned
+figures of the lighthouse film work as before.
+
+Sky and time: late autumn, the sun at −9° declination (sunrise about 07:10,
+sunset about 17:10). The moon, two days past full at +12°, rises at 19:00 in
+the ENE (azimuth 69°) and climbs to 13° by 20:30, as it must at this latitude.
+The star trails in S5 are drawn by the stylizer (`star_trail`: hours of
+exposure behind each star, rotated about the celestial pole of the film's
+latitude); `sky_glow` and `moon_halo` keep the moon a small disc.
+
+```bash
+PYTHON=venv/bin/python wonder_film/make_copernicus20.sh               # all 480 frames
+venv/bin/python wonder_film/render.py --film copernicus20 --out /tmp/k20 --frames 30,150,260,330,450 \
+    --res 640x360 --no-lines                                              # quick look
+venv/bin/python wonder_film/stylize.py --inp /tmp/k20 --out /tmp/k20png --look paint --no-titles --film copernicus20
+```
+
 ## Historical basis
 
 - Built c. 280–247 BC under the first Ptolemies. The architect was

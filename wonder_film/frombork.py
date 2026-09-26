@@ -377,6 +377,17 @@ def build_town(coll, m_brick, m_roof, m_houses):
     return o
 
 
+# no trees on these segments (x0, y0, x1, y1, radius): the brick road from the kilns
+# to the works, the yard at the tower's foot, and the lines of sight of the films' cameras
+CLEARINGS = [(-250.0, -176.0, -140.0, -92.0, 12.0),
+             (-150.0, -100.0, -118.0, -68.0, 16.0),
+             (-215.0, -265.0, -160.0, -150.0, 30.0),
+             (-215.0, -265.0, -125.0, -160.0, 25.0),
+             (-150.0, -150.0, -100.0, -150.0, 30.0),
+             (-135.0, -140.0, -125.0, -95.0, 22.0),
+             (-200.0, -140.0, -135.0, -90.0, 18.0)]
+
+
 def build_trees(coll):
     """Oaks, limes and beeches in groups on the slopes and the farmland, pines
     and spruces in dark stands, orchards by the town."""
@@ -398,6 +409,11 @@ def build_trees(coll):
     hedge = (Y < -90) & ((fx < 2.5) | (fx > 35.5)) & (rng.random(N) < 0.5)
     p = np.where(hedge, np.maximum(p, 0.6), p)
     keep = (Hh > 1.5) & (rng.random(N) < p * 0.45) & (np.abs(X - TOWER_C[0]) + np.abs(Y - TOWER_C[1]) > 30)
+    for (x0, y0, x1, y1, r) in CLEARINGS:                                   # keep camera paths and the works clear
+        d_ = np.array([x1 - x0, y1 - y0], float)
+        L2 = max(float(d_ @ d_), 1e-6)
+        t_ = np.clip(((X - x0) * d_[0] + (Y - y0) * d_[1]) / L2, 0.0, 1.0)
+        keep &= np.hypot(X - (x0 + t_ * d_[0]), Y - (y0 + t_ * d_[1])) > r
     X, Y, Hh = X[keep][:12000], Y[keep][:12000], Hh[keep][:12000]
     V, F, M = [], [], []
 
