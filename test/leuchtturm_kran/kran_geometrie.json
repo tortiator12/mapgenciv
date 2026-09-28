@@ -1,0 +1,89 @@
+{
+  "einheiten": "Meter, Radiant/Grad wie angegeben; Blender-Koordinaten, z nach oben",
+  "fps": 24,
+  "bilder": 480,
+  "einstellungen": [
+    {
+      "name": "S1",
+      "von_s": 0.0,
+      "bis_s": 3.0,
+      "von_bild": 0,
+      "bis_bild": 71
+    },
+    {
+      "name": "S2",
+      "von_s": 3.0,
+      "bis_s": 11.0,
+      "von_bild": 72,
+      "bis_bild": 263
+    },
+    {
+      "name": "S3",
+      "von_s": 11.0,
+      "bis_s": 13.5,
+      "von_bild": 264,
+      "bis_bild": 323
+    },
+    {
+      "name": "S4",
+      "von_s": 13.5,
+      "bis_s": 16.0,
+      "von_bild": 324,
+      "bis_bild": 383
+    },
+    {
+      "name": "S5",
+      "von_s": 16.0,
+      "bis_s": 20.0,
+      "von_bild": 384,
+      "bis_bild": 479
+    }
+  ],
+  "kran5": {
+    "standort": [
+      38.6,
+      -92.0,
+      2.95
+    ],
+    "kai_hoehe": 2.95,
+    "mast_hoehe_lokal": 9.0,
+    "auslegerspitze_lokal": [
+      7.4564936725636,
+      0.0,
+      11.648976575756894
+    ],
+    "radachse_lokal": [
+      -2.2,
+      0.0,
+      1.9
+    ],
+    "rad_radius": 1.6,
+    "lauf_radius": 1.54,
+    "trommel_radius": 0.25,
+    "schrittlaenge_pro_zyklus": 1.45,
+    "gehzyklus_meshes": 12,
+    "umlenkrolle_mastfuss_lokal": [
+      -0.25,
+      0.0,
+      0.9
+    ],
+    "seil_am_ausleger_lokal": [
+      [
+        0.2,
+        0.0,
+        1.25
+      ],
+      "spitze - (0,0,0.3)"
+    ],
+    "lokal": "im drehbaren Kranrahmen: x zeigt zum Ausleger, Drehung um z = Schwenk"
+  },
+  "formeln": {
+    "radwinkel": "theta = theta0 + hub / trommel_radius",
+    "seillaenge": "L = L0 - hub",
+    "lasthoehe": "z_last = z_last0 + hub",
+    "randgeschwindigkeit": "v_rand = lauf_radius * dtheta/dt  (Maenner gehen genau so schnell)",
+    "schrittphase": "zyklen = hub * lauf_radius / (trommel_radius * schrittlaenge_pro_zyklus)",
+    "film_S1": "hub = 0.5 m * t / 3 s, schwenk = 15 + 45 * ease(t / 3 s) Grad, pendel = 0.075 m * sin(2.1 t)",
+    "film_S2_bis_S5": "theta = 0.8 rad/s * t, unabhaengig vom Seil (nicht gekoppelt)"
+  }
+}
